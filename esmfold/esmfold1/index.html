@@ -27,7 +27,7 @@
   <pre id="output">PDB text will appear here...</pre>
 
   <script type="module">
-    const worker = new Worker('worker.js', { type: 'module' });
+    const worker = new Worker('worker.js?v=${Date.now()}', { type: 'module' });
     const statusEl = document.getElementById('status');
     const outEl = document.getElementById('output');
     const foldBtn = document.getElementById('foldBtn');

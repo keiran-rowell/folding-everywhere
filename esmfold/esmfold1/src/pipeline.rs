@@ -11,6 +11,8 @@ use crate::tokenizer::tokenize;
 use crate::trunk;
 use crate::weights::Weights;
 
+use crate::web_log;
+
 const NUM_RECYCLES: usize = 4;
 const RECYCLE_BINS: usize = 15;
 
@@ -117,7 +119,11 @@ pub fn fold(w: &Weights, consts: &Constants, seq: &str) -> FoldOutput {
 
 /// As `fold`, reporting progress via `prog(message, fraction 0..1)`.
 pub fn fold_cb(w: &Weights, consts: &Constants, seq: &str, prog: &mut dyn FnMut(&str, f32)) -> FoldOutput {
-    let ids = tokenize(seq);
+    let ids = crate::tokenizer::tokenize(seq);
+    crate::web_log!("pipeline: input seq len = {}, tokenized ids ({}) = {:?}", seq.len(), ids.len(), ids);
+    crate::web_log!("INPUT SEQ: {:?}", seq);
+    crate::web_log!("TOKENIZED IDS (len {}): {:?}", ids.len(), ids);
+
     let aatype = seq_to_aatype(seq);
     let l = seq.chars().count();
     // progress weighting: ESM ~30%, each recycle ~16%, heads ~2%

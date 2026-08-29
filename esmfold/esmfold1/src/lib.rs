@@ -40,33 +40,21 @@ pub fn init() {
 pub fn alloc_bytes(len: u64) -> *mut u8 {
     let size = len as usize;
     web_log!(
-        "alloc_bytes: allocating {} bytes ({} MB) via memory_grow...",
+        "alloc_bytes: asking Rust allocator for {} bytes ({} MB)...",
         size,
         size / (1024 * 1024)
     );
 
-    let pages_needed = (size + WASM_PAGE_SIZE - 1) / WASM_PAGE_SIZE;
+    // Claim memory through the official allocator so it knows this region is TAKEN.
+    // We use vec![0u8; size] instead of with_capacity to guarantee the pages are fully mapped.
+    let mut buf: Vec<u8> = vec![0u8; size];
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf); // Leak ownership to JS
 
-    let prev_pages = wasm::memory_grow(0, pages_needed);
-    if prev_pages == usize::MAX {
-        web_error!(
-            "memory_grow failed: host rejected expansion (requested {} pages)",
-            pages_needed
-        );
-        return std::ptr::null_mut();
-    }
-
-    let byte_offset = prev_pages * WASM_PAGE_SIZE;
-    let ptr = byte_offset as *mut u8;
-
-    web_log!(
-        "alloc_bytes: allocated successfully at {:p} (prev_pages: {}, added: {})",
-        ptr,
-        prev_pages,
-        pages_needed
-    );
+    web_log!("alloc_bytes: safely allocated at {:p}", ptr);
     ptr
 }
+
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn alloc_bytes(len: u64) -> *mut u8 {

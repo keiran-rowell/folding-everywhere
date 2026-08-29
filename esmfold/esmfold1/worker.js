@@ -6,12 +6,13 @@ let cachedContentLength = 0;
 let isLoaded = false;
 let loadPromise = null;
 
-// worker.js
+// Initialize once with the 4GB memory pool at top-level scope
 const memory = new WebAssembly.Memory({
-    initial: 256,     // 16 MB initial
+    initial: 256,       // 16 MB initial
     maximum: 65536,   // 4.0 GB max (65536 * 64KB)
 });
 
+// Pass memory once on module load
 wasmInstance = await init({ memory });
 
 async function ensureWeightsLoaded(weightsUrl) {
@@ -19,9 +20,6 @@ async function ensureWeightsLoaded(weightsUrl) {
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    self.postMessage({ type: 'status', message: 'Initialising WASM runtime...' });
-    wasmInstance = await init();
-
     self.postMessage({ type: 'status', message: `Streaming weights from ${weightsUrl}...` });
     const response = await fetch(weightsUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status} fetching weights`);
@@ -34,7 +32,6 @@ async function ensureWeightsLoaded(weightsUrl) {
       message: `Allocating ${(contentLength / (1024 * 1024 * 1024)).toFixed(2)} GB in WASM linear memory...`
     });
 
-    // Allocate once in WASM linear memory
     const ptr = alloc_bytes(BigInt(contentLength));
     if (!ptr || ptr === 0) {
       throw new Error("Failed to allocate linear memory for weights buffer.");
@@ -51,7 +48,7 @@ async function ensureWeightsLoaded(weightsUrl) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      // Access wasmInstance.memory.buffer dynamically on each chunk in case of memory.grow
+      // Access memory buffer dynamically on each chunk
       new Uint8Array(wasmInstance.memory.buffer, currentPtr, value.byteLength).set(value);
 
       currentPtr += value.byteLength;
@@ -76,10 +73,8 @@ self.onmessage = async (e) => {
   const { fasta, weightsUrl } = e.data;
 
   try {
-    // 1. Paid only on the first call (or skips straight through if already loaded)
     await ensureWeightsLoaded(weightsUrl);
 
-    // 2. Fast inference path
     self.postMessage({ type: 'status', message: 'Starting fold inference...' });
     const startTime = performance.now();
 
