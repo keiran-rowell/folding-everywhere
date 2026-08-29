@@ -25,12 +25,18 @@ pub struct Constants {
 /// Residue constants embedded at compile time so the binary is self-contained.
 static EMBEDDED: &[u8] = include_bytes!("../fixtures/constants/residue_constants.safetensors");
 
+
+use crate::weights::Weights;
+
 impl Constants {
     #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
     pub fn load(path: &str) -> Self {
-        let w = Weights::open(path).expect("constants safetensors");
+        let bytes = std::fs::read(path).expect("read constants safetensors file");
+        let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+        let w = Weights::from_bytes(leaked).expect("parse constants safetensors");
         Self::from_getter(|n| w.get(n).data)
     }
+      
 
     /// Load from the embedded constants (no external file needed).
     pub fn embedded() -> Self {

@@ -69,7 +69,6 @@ pub fn alloc_bytes(len: u64) -> *mut u8 {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[wasm_bindgen]
 pub fn alloc_bytes(len: u64) -> *mut u8 {
     let size = len as usize;
     let mut buf: Vec<u8> = vec![0u8; size];
@@ -81,7 +80,7 @@ pub fn alloc_bytes(len: u64) -> *mut u8 {
 #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
 #[wasm_bindgen]
 pub fn dealloc_bytes(_ptr: *mut u8, _len: u64) {
-    // Retained across inferences
+    // Memory allocated via memory_grow persists in the linear memory space across passes
 }
 
 #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
