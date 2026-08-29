@@ -8,7 +8,7 @@ use crate::ops;
 use crate::tensor::Tensor;
 use crate::weights::Weights;
 
-use crate::{web_error, web_log};
+use crate::web_log;
 
 const D: usize = 2560;
 const N_LAYERS: usize = 36;

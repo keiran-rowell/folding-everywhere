@@ -6,6 +6,14 @@ let cachedContentLength = 0;
 let isLoaded = false;
 let loadPromise = null;
 
+// worker.js
+const memory = new WebAssembly.Memory({
+    initial: 256,     // 16 MB initial
+    maximum: 65536,   // 4.0 GB max (65536 * 64KB)
+});
+
+wasmInstance = await init({ memory });
+
 async function ensureWeightsLoaded(weightsUrl) {
   if (isLoaded) return;
   if (loadPromise) return loadPromise;

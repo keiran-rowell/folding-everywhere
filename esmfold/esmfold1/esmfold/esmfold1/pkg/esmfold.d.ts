@@ -17,11 +17,12 @@ export interface InitOutput {
     readonly dealloc_bytes: (a: number, b: bigint) => void;
     readonly fold_esmfold1_from_ptr: (a: number, b: number, c: number, d: bigint, e: number) => [number, number, number, number];
     readonly init: () => void;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __externref_table_alloc: () => number;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }

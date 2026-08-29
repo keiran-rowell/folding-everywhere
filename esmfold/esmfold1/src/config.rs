@@ -1,5 +1,3 @@
-// src/config.rs
-
 #[derive(Clone, Copy, Debug)]
 pub struct EsmConfig {
     pub num_layers: usize,
@@ -29,17 +27,15 @@ impl EsmConfig {
 
     /// Auto-detect model architecture from safetensors index or embedding dimensions
     pub fn from_weights(weights: &crate::weights::Weights) -> Self {
-        // e.g. check word embeddings shape [vocab_size, hidden_dim]
-        if let Some(entry) = weights.index.get("esm.embeddings.word_embeddings.weight") {
-            let hidden_dim = entry.shape[1];
+        if let Some(shape) = weights.get_shape("esm.embeddings.word_embeddings.weight") {
+            let hidden_dim = shape[1];
             match hidden_dim {
                 1280 => Self::esm2_650m(),
                 2560 => Self::esm2_3b(),
                 other => panic!("Unsupported hidden dimension: {other}"),
             }
         } else {
-            // Default fallback
             Self::esm2_650m()
         }
     }
-}
+}// src/config.rs

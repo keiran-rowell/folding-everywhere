@@ -12,13 +12,13 @@
   </style>
 </head>
 <body>
-  <h2>ESMFold v1 — WASM64 Browser Runner</h2>
+  <h2>ESMFold1-650M Wasm32 with -O4 Browser Runner</h2>
 
   <label for="fasta">Amino Acid Sequence:</label>
   <textarea id="fasta">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
 
   <label for="weights">Path/URL to ESMFold1 Weights (.safetensors [preferred!] or .pt [buggy]):</label>
-  <input type="text" id="weights" value="./weights/esmfold_v1_complete.safetensors" style="width: 100%; margin: 8px 0;">
+  <input type="text" id="weights" value="./weights/esmfold_650M_v1.safetensors" style="width: 100%; margin: 8px 0;">
 
   <button id="foldBtn">Run Fold</button>
   <p id="status">Ready</p>
