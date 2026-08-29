@@ -1,6 +1,7 @@
 #![feature(simd_wasm64)]
 
 pub mod constants;
+pub mod config;
 pub mod esm2;
 pub mod heads;
 pub mod log;
@@ -16,6 +17,8 @@ pub mod tensor;
 pub mod tokenizer;
 pub mod trunk;
 pub mod weights;
+
+pub use config::EsmConfig;
 
 pub use tensor::Tensor;
 pub use weights::Weights;
