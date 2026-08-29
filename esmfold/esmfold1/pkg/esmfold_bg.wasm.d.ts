@@ -1,9 +1,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const alloc_bytes: (a: number) => number;
-export const dealloc_bytes: (a: number, b: number) => void;
-export const fold_esmfold1_from_ptr: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+export const alloc_bytes: (a: bigint) => number;
+export const dealloc_bytes: (a: number, b: bigint) => void;
+export const fold_esmfold1_from_ptr: (a: number, b: number, c: number, d: bigint, e: number) => [number, number, number, number];
 export const init: () => void;
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;

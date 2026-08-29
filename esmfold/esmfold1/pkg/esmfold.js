@@ -1,7 +1,7 @@
 /* @ts-self-types="./esmfold.d.ts" */
 
 /**
- * @param {number} len
+ * @param {bigint} len
  * @returns {number}
  */
 export function alloc_bytes(len) {
@@ -11,7 +11,7 @@ export function alloc_bytes(len) {
 
 /**
  * @param {number} ptr
- * @param {number} len
+ * @param {bigint} len
  */
 export function dealloc_bytes(ptr, len) {
     wasm.dealloc_bytes(ptr, len);
@@ -20,7 +20,7 @@ export function dealloc_bytes(ptr, len) {
 /**
  * @param {string} seq
  * @param {number} weight_ptr
- * @param {number} weight_len
+ * @param {bigint} weight_len
  * @param {Function | null} [progress_fn]
  * @returns {string}
  */
@@ -58,6 +58,9 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2, arg3);
             return ret;
         }, arguments); },
+        __wbg_error_e66a97f0222a66c4: function(arg0, arg1) {
+            console.error(getStringFromWasm0(arg0, arg1));
+        },
         __wbg_log_9bc566ce1dac88d1: function(arg0, arg1) {
             console.log(getStringFromWasm0(arg0, arg1));
         },

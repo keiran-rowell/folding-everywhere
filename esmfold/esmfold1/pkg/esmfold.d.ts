@@ -1,11 +1,11 @@
 /* tslint:disable */
 /* eslint-disable */
 
-export function alloc_bytes(len: number): number;
+export function alloc_bytes(len: bigint): number;
 
-export function dealloc_bytes(ptr: number, len: number): void;
+export function dealloc_bytes(ptr: number, len: bigint): void;
 
-export function fold_esmfold1_from_ptr(seq: string, weight_ptr: number, weight_len: number, progress_fn?: Function | null): string;
+export function fold_esmfold1_from_ptr(seq: string, weight_ptr: number, weight_len: bigint, progress_fn?: Function | null): string;
 
 export function init(): void;
 
@@ -13,9 +13,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly alloc_bytes: (a: number) => number;
-    readonly dealloc_bytes: (a: number, b: number) => void;
-    readonly fold_esmfold1_from_ptr: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly alloc_bytes: (a: bigint) => number;
+    readonly dealloc_bytes: (a: number, b: bigint) => void;
+    readonly fold_esmfold1_from_ptr: (a: number, b: number, c: number, d: bigint, e: number) => [number, number, number, number];
     readonly init: () => void;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;

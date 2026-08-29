@@ -33,4 +33,4 @@ js-sys = "0.3"
 [profile.release]
 debug = true
 opt-level = 2
-panic = "abort" 
+panic = "unwind" 

@@ -17,8 +17,8 @@
   <label for="fasta">Amino Acid Sequence:</label>
   <textarea id="fasta">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
 
-  <label for="weights">Path/URL to ESMFold1 Weights (.pt or .safetensors):</label>
-  <input type="text" id="weights" value="./weights/esmfold_3B_v1.pt" style="width: 100%; margin: 8px 0;">
+  <label for="weights">Path/URL to ESMFold1 Weights (.safetensors [preferred!] or .pt [buggy]):</label>
+  <input type="text" id="weights" value="./weights/esmfold_3B_v1.safetensors" style="width: 100%; margin: 8px 0;">
 
   <button id="foldBtn">Run Fold</button>
   <p id="status">Ready</p>
