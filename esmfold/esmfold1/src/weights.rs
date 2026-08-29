@@ -115,32 +115,73 @@ impl<'a> Weights<'a> {
 
     /// Fetch a tensor as fp32 (F16 and BF16 upcast losslessly). Panics if name missing.
     pub fn get(&self, name: &str) -> Tensor {
-        let e = self
-            .index
-            .get(name)
-            .unwrap_or_else(|| panic!("weight not found: {name}"));
+        crate::web_log!("--> Entered weights.get for '{}'", name);
+
+        let e = match self.index.get(name) {
+            Some(entry) => entry,
+            None => {
+                crate::web_error!("CRITICAL: weight not found: '{name}'");
+                panic!("weight not found: {name}");
+            }
+        };
+
+        crate::web_log!(
+            "weights.get('{}'): dtype={}, shape={:?}, offset=[{}..{}]",
+            name, e.dtype, e.shape, e.start, e.end
+        );
+
+        if e.start >= self.data.len() || e.end > self.data.len() {
+            crate::web_error!(
+                "CRITICAL: slice [{}..{}] out of bounds for buffer len {}",
+                e.start, e.end, self.data.len()
+            );
+            panic!("slice out of bounds for {name}");
+        }
+
         let bytes = &self.data[e.start..e.end];
+        let num_elements: usize = e.shape.iter().product();
+
         let data: Vec<f32> = match e.dtype.as_str() {
-            "F32" => bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect(),
-            "F16" => bytes
-                .chunks_exact(2)
-                .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
-                .collect(),
-            "BF16" => bytes
-                .chunks_exact(2)
-                .map(|c| half::bf16::from_le_bytes([c[0], c[1]]).to_f32())
-                .collect(),
+            "F32" => {
+                let mut v = Vec::with_capacity(num_elements);
+                for c in bytes.chunks_exact(4) {
+                    v.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+                }
+                v
+            }
+            "F16" => {
+                let mut v = Vec::with_capacity(num_elements);
+                for c in bytes.chunks_exact(2) {
+                    v.push(half::f16::from_le_bytes([c[0], c[1]]).to_f32());
+                }
+                v
+            }
+            "BF16" => {
+                let mut v = Vec::with_capacity(num_elements);
+                for c in bytes.chunks_exact(2) {
+                    v.push(half::bf16::from_le_bytes([c[0], c[1]]).to_f32());
+                }
+                v
+            }
             other => panic!("get() unsupported dtype {other} for {name}"),
         };
+
+        crate::web_log!("<-- Returning Tensor for '{}' (len {})", name, data.len());
         Tensor::new(data, e.shape.clone())
     }
 
     pub fn get_i64(&self, name: &str) -> Vec<i64> {
         let e = self.index.get(name).unwrap_or_else(|| panic!("weight not found: {name}"));
         assert_eq!(e.dtype, "I64");
+
+        if e.start >= self.data.len() || e.end > self.data.len() {
+            crate::web_error!(
+                "CRITICAL: slice [{}..{}] out of bounds for buffer len {}",
+                e.start, e.end, self.data.len()
+            );
+            panic!("slice out of bounds for {name}");
+        }
+
         let bytes = &self.data[e.start..e.end];
         bytes
             .chunks_exact(8)

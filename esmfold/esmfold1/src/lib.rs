@@ -1,3 +1,5 @@
+#![feature(simd_wasm64)]
+
 pub mod constants;
 pub mod esm2;
 pub mod heads;
@@ -28,13 +30,20 @@ pub fn init() {
     web_log!("ESMFold1 WASM64 core initialized with panic hooks.");
 }
 
+use std::arch::wasm64 as wasm; // For wasm64 memory.grow intrinsic
+
 #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
 #[wasm_bindgen]
 pub fn alloc_bytes(len: u64) -> *mut u8 {
     let size = len as usize;
-    let mut buf: Vec<u8> = Vec::with_capacity(size);
+    web_log!("alloc_bytes: allocating {} bytes ({} MB)...", size, size / (1024 * 1024));
+    
+    // Allocate contiguous zeroed buffer so all WASM memory pages are committed
+    let mut buf: Vec<u8> = vec![0u8; size]; //0u8 is saying fill vector with unsigned 8-bit int set to zero, forcing grow
     let ptr = buf.as_mut_ptr();
     std::mem::forget(buf);
+    
+    web_log!("alloc_bytes: allocated buffer successfully at pointer {:p}", ptr);
     ptr
 }
 
