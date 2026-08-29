@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ESMFold1 WASM64 Test</title>
+  <style>
+    body { font-family: monospace; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+    textarea { width: 100%; height: 80px; font-family: inherit; }
+    pre { background: #f4f4f4; padding: 12px; max-height: 400px; overflow-y: auto; }
+    button { padding: 8px 16px; margin: 8px 0; cursor: pointer; }
+    #status { color: #0066cc; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>ESMFold v1 — WASM64 Browser Runner</h2>
+
+  <label for="fasta">Amino Acid Sequence:</label>
+  <textarea id="fasta">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
+
+  <label for="weights">Path/URL to ESMFold1 Weights (.pt or .safetensors):</label>
+  <input type="text" id="weights" value="./weights/esmfold_3B_v1.pt" style="width: 100%; margin: 8px 0;">
+
+  <button id="foldBtn">Run Fold</button>
+  <p id="status">Ready</p>
+
+  <h3>Predicted PDB Output:</h3>
+  <pre id="output">PDB text will appear here...</pre>
+
+  <script type="module">
+    const worker = new Worker('worker.js', { type: 'module' });
+    const statusEl = document.getElementById('status');
+    const outEl = document.getElementById('output');
+    const foldBtn = document.getElementById('foldBtn');
+
+    worker.onmessage = (e) => {
+      const { type, message, pdb, elapsed } = e.data;
+      if (type === 'status') {
+        statusEl.textContent = message;
+      } else if (type === 'complete') {
+        statusEl.textContent = `Done in ${elapsed}s!`;
+        outEl.textContent = pdb;
+        foldBtn.disabled = false;
+      } else if (type === 'error') {
+        statusEl.textContent = `Error: ${message}`;
+        foldBtn.disabled = false;
+      }
+    };
+
+    foldBtn.onclick = () => {
+      foldBtn.disabled = true;
+      const fasta = document.getElementById('fasta').value.trim();
+      const weightsUrl = document.getElementById('weights').value.trim();
+      worker.postMessage({ fasta, weightsUrl });
+    };
+  </script>
+</body>
+</html>

@@ -26,6 +26,7 @@ fn u64le(b: &[u8], o: usize) -> u64 {
     u64::from_le_bytes(b[o..o + 8].try_into().unwrap())
 }
 
+#[allow(dead_code)]
 struct ZipFileInfo {
     method: u16,
     size: u64,            // uncompressed == compressed (STORED)
@@ -107,6 +108,7 @@ fn parse_zip(b: &[u8]) -> std::collections::HashMap<String, (usize, usize)> {
 
 // ---- minimal pickle machine (subset used by torch state_dicts) ------------
 #[derive(Clone)]
+#[allow(dead_code)]
 enum V {
     Int(i64),
     Str(String),

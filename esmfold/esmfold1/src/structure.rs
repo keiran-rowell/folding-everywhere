@@ -10,7 +10,6 @@ use crate::weights::Weights;
 //use rayon::prelude::*;
 use crate::par_iter::*;
 
-const C_S: usize = 384;
 const C_Z: usize = 128;
 const IPA_DIM: usize = 16;
 const H: usize = 12;
