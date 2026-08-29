@@ -21,7 +21,7 @@ pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
     let lp2 = states[0].shape[0];
     let l = lp2 - 2;
     let d = states[0].shape[1]; // 2560
-    let n_layers = states.len(); // 37
+    let n_layers = states.len(); // Dynamically set 
     // softmax(esm_s_combine)
     let comb = w.get("esm_s_combine").data;
     let m = comb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -47,9 +47,37 @@ pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
             }
         }
     }
-    let combined = Tensor::new(combined, vec![l, d]);
+    let combined_t = Tensor::new(combined, vec![l, d]);
+
+    // Adapt embedding dimension to trunk input dimension (e.g. 1280 -> 2560)
+    let mlp_ln_w = w.get("esm_s_mlp.0.weight");
+    let trunk_dim = mlp_ln_w.shape[0];
+
+    let combined_adapted = if d != trunk_dim {
+        crate::web_log!(
+            "lm_to_trunk: adapting LM dim {} to trunk dim {}",
+            d,
+            trunk_dim
+        );
+        let mut adapted = vec![0.0f32; l * trunk_dim];
+        for li in 0..l {
+            for c in 0..d.min(trunk_dim) {
+                adapted[li * trunk_dim + c] = combined_t.data[li * d + c];
+            }
+        }
+        Tensor::new(adapted, vec![l, trunk_dim])
+    } else {
+        combined_t
+    };
+
     // esm_s_mlp: LN -> Linear -> ReLU -> Linear
-    let h = ops::layer_norm(&combined, &w.get("esm_s_mlp.0.weight"), &w.get("esm_s_mlp.0.bias"), 1e-5);
+    let h = ops::layer_norm(
+        &combined_adapted,
+        &mlp_ln_w,
+        &w.get("esm_s_mlp.0.bias"),
+        1e-5,
+    );
+
     let h = ops::linear(&h, &w.get("esm_s_mlp.1.weight"), Some(&w.get("esm_s_mlp.1.bias")));
     let h = ops::relu(&h);
     let mut s_s0 = ops::linear(&h, &w.get("esm_s_mlp.3.weight"), Some(&w.get("esm_s_mlp.3.bias")));
@@ -129,7 +157,8 @@ pub fn fold_cb(w: &Weights, consts: &Constants, seq: &str, prog: &mut dyn FnMut(
     // progress weighting: ESM ~30%, each recycle ~16%, heads ~2%
     prog("Running ESM-2 language model…", 0.0);
     let states = esm2_states_cb(w, &ids, &mut |layer| {
-        prog(&format!("ESM-2 transformer: layer {layer}/36"), 0.30 * layer as f32 / 36.0);
+        // layer is 1..=33 (650M) or 1..=36 (3B)
+        prog(&format!("ESM-2 transformer: layer {layer}"), 0.30 * (layer as f32 / 33.0).min(1.0));
     });
     prog("Combining language-model features…", 0.30);
     let s_s0 = lm_to_trunk(&states, &aatype, w);

@@ -17,7 +17,37 @@ pub struct Weights<'a> {
     pub(crate) data: &'a [u8],
 }
 
+
+
 impl<'a> Weights<'a> {
+   /// Return tensor if present in index, without panicking
+    pub fn try_get(&self, name: &str) -> Option<Tensor> {
+        if self.index.contains_key(name) {
+            // Re-use your existing tensor-building logic or call your parser
+            Some(self.get(name))
+        } else {
+            None
+        }
+    }
+
+    /// Check if a tensor key exists in the safetensors index
+    pub fn contains(&self, name: &str) -> bool {
+        self.index.contains_key(name)
+    }
+
+    /// Try fetching the tensor using multiple candidate keys in order
+    pub fn get_any(&self, candidates: &[&str]) -> Tensor {
+        for &name in candidates {
+            if self.index.contains_key(name) {
+                return self.get(name);
+            }
+        }
+        panic!(
+            "None of the candidate weight tensors found in index: {:?}",
+            candidates
+        );
+    }
+
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, String> {
         if bytes.len() < 8 {
             return Err("Header too short for safetensors".into());
