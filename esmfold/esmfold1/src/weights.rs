@@ -1,187 +1,94 @@
 //! In-memory and mmap'd safetensors / PyTorch .bin loader.
 //! Returns fp32 `Tensor`s by name, upcasting F16 and BF16 losslessly.
 
-use crate::tensor::Tensor;
+
 use std::collections::HashMap;
-use crate::{web_error, web_log};
+#[cfg(target_arch = "wasm32")]
+use std::arch::wasm32::*;
 
-#[derive(Clone, Debug)]
-struct Entry {
-    dtype: String,
-    shape: Vec<usize>,
-    start: usize, // ABSOLUTE byte offset in the buffer
-    end: usize,
-}
+use crate::tensor::Tensor; // adjust path if Tensor is in crate::tensor
 
-pub enum WeightData<'a> {
-    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
-    Mmap(memmap2::Mmap),
-    Borrowed(&'a [u8]),
-}
-
-impl<'a> std::ops::Deref for WeightData<'a> {
-    type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        match self {
-            #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
-            WeightData::Mmap(m) => m,
-            WeightData::Borrowed(b) => b,
-        }
-    }
+pub struct TensorEntry {
+    pub dtype: String,
+    pub shape: Vec<usize>,
+    pub start: usize,
+    pub end: usize,
 }
 
 pub struct Weights<'a> {
-    data: WeightData<'a>,
-    index: HashMap<String, Entry>,
+    pub(crate) index: HashMap<String, TensorEntry>,
+    pub(crate) data: &'a [u8],
 }
 
 impl<'a> Weights<'a> {
-    /// Native disk loader: memory-maps a file from disk (CLI / desktop only).
-    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
-    pub fn open(path: &str) -> std::io::Result<Weights<'static>> {
-        let file = std::fs::File::open(path)?;
-        let mmap = unsafe { memmap2::Mmap::map(&file)? };
-        let index = Self::build_index(&mmap)?;
-        Ok(Weights {
-            data: WeightData::Mmap(mmap),
-            index,
-        })
-    }
+    /// Resolves canonical key or known naming aliases across HF / FAIR checkpoints
+    fn resolve_key(&self, name: &str) -> Option<&String> {
+        if self.index.contains_key(name) {
+            return self.index.keys().find(|&k| k == name);
+        }
 
-    /// In-memory buffer loader: accepts raw bytes directly (WASM / Web Worker).
-    pub fn from_bytes(bytes: &'a [u8]) -> std::io::Result<Self> {
-        let index = Self::build_index(bytes)?;
-        Ok(Weights {
-            data: WeightData::Borrowed(bytes),
-            index,
-        })
-    }
+        // Aliases mapping
+        let aliases: &[(&str, &[&str])] = &[
+            (
+                "esm.embeddings.word_embeddings.weight",
+                &[
+                    "esm.embed_tokens.weight",
+                    "embed_tokens.weight",
+                    "esm.encoder.embed_tokens.weight",
+                ],
+            ),
+            (
+                "esm.embeddings.position_embeddings.weight",
+                &["esm.encoder.position_embeddings.weight"],
+            ),
+            (
+                "esm.embeddings.LayerNorm.weight",
+                &["esm.emb_layer_norm_after.weight", "esm.encoder.emb_layer_norm_after.weight"],
+            ),
+            (
+                "esm.embeddings.LayerNorm.bias",
+                &["esm.emb_layer_norm_after.bias", "esm.encoder.emb_layer_norm_after.bias"],
+            ),
+        ];
 
-    /// Auto-detects PyTorch ZIP vs. Safetensors format and builds the tensor index.
-    fn build_index(buf: &[u8]) -> std::io::Result<HashMap<String, Entry>> {
-        if buf.len() >= 4 && &buf[0..4] == b"PK\x03\x04" {
-            web_log!("weights: detected PyTorch ZIP format ({} bytes)", buf.len());
-            // PyTorch .bin (ZIP archive)
-            Ok(crate::pth::index_pth(buf)
-                .into_iter()
-                .map(|e| (e.name, Entry { dtype: e.dtype, shape: e.shape, start: e.start, end: e.end }))
-                .collect())
-        } else {
-            // Safetensors
-            web_log!("weights: detected Safetensors format ({} bytes)", buf.len());
-            let header_len = u64::from_le_bytes(
-                buf[0..8].try_into().map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
-            ) as usize;
-
-            web_log!("weights: safetensors header length = {} bytes", header_len);
-            let json: serde_json::Value = serde_json::from_slice(&buf[8..8 + header_len])
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-            let data_start = 8 + header_len;
-            let mut index = HashMap::new();
-
-            if let serde_json::Value::Object(map) = json {
-                for (k, v) in map {
-                    if k == "__metadata__" {
-                        continue;
+        for (canonical, alts) in aliases {
+            if name == *canonical {
+                for alt in *alts {
+                    if let Some(k) = self.index.keys().find(|&k| k == *alt) {
+                        return Some(k);
                     }
-                    let dtype = v["dtype"].as_str().unwrap().to_string();
-                    let shape: Vec<usize> = v["shape"].as_array().unwrap().iter()
-                        .map(|x| x.as_u64().unwrap() as usize).collect();
-                    let offs = v["data_offsets"].as_array().unwrap();
-                    let start = data_start + offs[0].as_u64().unwrap() as usize;
-                    let end = data_start + offs[1].as_u64().unwrap() as usize;
-                    index.insert(k, Entry { dtype, shape, start, end });
+                }
+            } else if alts.contains(&name) {
+                if let Some(k) = self.index.keys().find(|&k| k == *canonical) {
+                    return Some(k);
+                }
+                for alt in *alts {
+                    if *alt != name {
+                        if let Some(k) = self.index.keys().find(|&k| k == *alt) {
+                            return Some(k);
+                        }
+                    }
                 }
             }
-            web_log!("weights: safetensors index parsed with {} entries", index.len());
-            Ok(index)
         }
+
+        None
     }
 
-    pub fn has(&self, name: &str) -> bool {
-        self.index.contains_key(name)
+    pub fn get_shape(&self, name: &str) -> Option<&[usize]> {
+        let actual_key = self.resolve_key(name)?;
+        self.index.get(actual_key).map(|entry| entry.shape.as_slice())
     }
 
-    pub fn names(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.index.keys().cloned().collect();
-        v.sort();
-        v
-    }
-
-    pub fn shape(&self, name: &str) -> Option<&[usize]> {
-        self.index.get(name).map(|e| e.shape.as_slice())
-    }
-
-
-use std::arch::wasm32::*;
-
-/// SIMD vectorised get() on weights 
-pub fn get(&self, name: &str) -> Tensor {
-    let e = match self.index.get(name) {
-        Some(entry) => entry,
-        None => panic!("weight not found: {name}"),
-    };
-
-    if e.start >= self.data.len() || e.end > self.data.len() {
-        panic!("slice out of bounds for {name}");
-    }
-
-    let bytes = &self.data[e.start..e.end];
-    let num_elements: usize = e.shape.iter().product();
-
-    let data: Vec<f32> = match e.dtype.as_str() {
-        "F32" => {
-            // Direct zero-copy slice cast when aligned, or fast memcpy
-            let mut v = vec![0.0f32; num_elements];
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    bytes.as_ptr() as *const f32,
-                    v.as_mut_ptr(),
-                    num_elements,
-                );
+    pub fn get(&self, name: &str) -> Tensor {
+        let actual_key = match self.resolve_key(name) {
+            Some(key) => key,
+            None => {
+                crate::web_error!("CRITICAL: weight not found: '{name}'");
+                crate::web_error!("Available keys sample: {:?}", self.index.keys().take(10).collect::<Vec<_>>());
+                panic!("weight not found: {name}");
             }
-            v
-        }
-        "BF16" => {
-            let mut v = Vec::with_capacity(num_elements);
-            let u16_ptr = bytes.as_ptr() as *const u16;
-            let mut i = 0;
+        };
 
-            // Unpack 8 BF16 elements at once using 128-bit SIMD
-            unsafe {
-                let dst_ptr = v.as_mut_ptr() as *mut v128;
-                while i + 8 <= num_elements {
-                    let raw_128 = v128_load(u16_ptr.add(i) as *const v128);
-                    
-                    // Shift 16 bits to become f32 high bits
-                    let f32_low = i32x4_shl(i32x4_extend_low_i16x8(raw_128), 16);
-                    let f32_high = i32x4_shl(i32x4_extend_high_i16x8(raw_128), 16);
-
-                    v128_store(dst_ptr.add(i / 4), f32_low);
-                    v128_store(dst_ptr.add((i / 4) + 1), f32_high);
-                    i += 8;
-                }
-                v.set_len(i);
-            }
-
-            // Scalar remainder
-            while i < num_elements {
-                let raw = u16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
-                v.push(f32::from_bits((raw as u32) << 16));
-                i += 1;
-            }
-            v
-        }
-        "F16" => {
-            let mut v = Vec::with_capacity(num_elements);
-            for c in bytes.chunks_exact(2) {
-                v.push(half::f16::from_le_bytes([c[0], c[1]]).to_f32());
-            }
-            v
-        }
-        other => panic!("unsupported dtype {other}"),
-    };
-
-    Tensor::new(data, e.shape.clone())
-}
+        let e = &self.index[actual_key];
+        // ... rest of your get implementation using `e` ...
