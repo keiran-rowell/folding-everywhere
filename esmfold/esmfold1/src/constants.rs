@@ -3,6 +3,8 @@
 
 use crate::weights::Weights;
 
+use crate::{web_error, web_log};
+
 /// AF2 restype order (A=0 .. V=19, X=20). Matches residue_constants.restype_order_with_x.
 pub const RESTYPES: &str = "ARNDCQEGHILKMFPSTWYV";
 

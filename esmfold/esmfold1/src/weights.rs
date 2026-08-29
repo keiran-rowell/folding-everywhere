@@ -3,6 +3,7 @@
 
 use crate::tensor::Tensor;
 use std::collections::HashMap;
+use crate::{web_error, web_log};
 
 #[derive(Clone, Debug)]
 struct Entry {
@@ -59,6 +60,7 @@ impl<'a> Weights<'a> {
     /// Auto-detects PyTorch ZIP vs. Safetensors format and builds the tensor index.
     fn build_index(buf: &[u8]) -> std::io::Result<HashMap<String, Entry>> {
         if buf.len() >= 4 && &buf[0..4] == b"PK\x03\x04" {
+            web_log!("weights: detected PyTorch ZIP format ({} bytes)", buf.len());
             // PyTorch .bin (ZIP archive)
             Ok(crate::pth::index_pth(buf)
                 .into_iter()
@@ -66,10 +68,12 @@ impl<'a> Weights<'a> {
                 .collect())
         } else {
             // Safetensors
+            web_log!("weights: detected Safetensors format ({} bytes)", buf.len());
             let header_len = u64::from_le_bytes(
                 buf[0..8].try_into().map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
             ) as usize;
 
+            web_log!("weights: safetensors header length = {} bytes", header_len);
             let json: serde_json::Value = serde_json::from_slice(&buf[8..8 + header_len])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
@@ -90,6 +94,7 @@ impl<'a> Weights<'a> {
                     index.insert(k, Entry { dtype, shape, start, end });
                 }
             }
+            web_log!("weights: safetensors index parsed with {} entries", index.len());
             Ok(index)
         }
     }

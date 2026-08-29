@@ -8,6 +8,8 @@ use crate::ops;
 use crate::tensor::Tensor;
 use crate::weights::Weights;
 
+use crate::{web_error, web_log};
+
 const D: usize = 2560;
 const N_LAYERS: usize = 36;
 const N_HEADS: usize = 40;
@@ -101,10 +103,13 @@ pub fn esm2_states(w: &Weights, ids: &[i64]) -> Vec<Tensor> {
 /// As `esm2_states`, calling `prog(layer_index)` after each of the 36 layers.
 pub fn esm2_states_cb(w: &Weights, ids: &[i64], prog: &mut dyn FnMut(usize)) -> Vec<Tensor> {
     let l = ids.len();
+    web_log!("esm2: building cos/sin for sequence length L = {}", l);
     let (cos, sin) = ops::build_cos_sin(l, HEAD);
 
     // embeddings: word lookup * token_dropout scale
+    web_log!("esm2: loading word embeddings...");
     let we = w.get("esm.embeddings.word_embeddings.weight"); // [33, D]
+    web_log!("esm2: word embeddings found: shape {:?}", we.shape);
     let mut emb = vec![0.0f32; l * D];
     for (i, &id) in ids.iter().enumerate() {
         let row = id as usize * D;
@@ -118,6 +123,8 @@ pub fn esm2_states_cb(w: &Weights, ids: &[i64], prog: &mut dyn FnMut(usize)) -> 
     states.push(x.clone()); // state_0 = embeddings
 
     for layer in 0..N_LAYERS {
+        web_log!("esm2: starting layer {}/{}", layer + 1, N_LAYERS);
+
         let lp = format!("esm.encoder.layer.{layer}");
         // attention sub-block (pre-LN)
         let x_ln = ln(&x, w, &format!("{lp}.attention.LayerNorm"));
@@ -134,10 +141,12 @@ pub fn esm2_states_cb(w: &Weights, ids: &[i64], prog: &mut dyn FnMut(usize)) -> 
             states.push(x.clone()); // state_{layer+1}
         } else {
             // last layer: store LN_after(output) as state_36 (== last_hidden_state)
+            web_log!("esm2: applying final emb_layer_norm_after...");
             let last = ln(&x, w, "esm.encoder.emb_layer_norm_after");
             states.push(last);
         }
         prog(layer + 1);
     }
+    web_log!("esm2: successfully produced {} hidden states", states.len());
     states
 }
