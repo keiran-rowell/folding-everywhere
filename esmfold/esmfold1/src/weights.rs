@@ -1,44 +1,81 @@
-//! mmap'd safetensors loader. Returns fp32 `Tensor`s by name, upcasting F16
-//! losslessly. Header is parsed manually to avoid self-referential borrows and
-//! to sidestep alignment requirements (we convert via `from_le_bytes`).
+//! In-memory and mmap'd safetensors / PyTorch .bin loader.
+//! Returns fp32 `Tensor`s by name, upcasting F16 and BF16 losslessly.
 
 use crate::tensor::Tensor;
-use memmap2::Mmap;
 use std::collections::HashMap;
-use std::fs::File;
 
 #[derive(Clone, Debug)]
 struct Entry {
     dtype: String,
     shape: Vec<usize>,
-    start: usize, // ABSOLUTE byte offset in the file
+    start: usize, // ABSOLUTE byte offset in the buffer
     end: usize,
 }
 
-pub struct Weights {
-    mmap: Mmap,
+pub enum WeightData<'a> {
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    Mmap(memmap2::Mmap),
+    Borrowed(&'a [u8]),
+}
+
+impl<'a> std::ops::Deref for WeightData<'a> {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        match self {
+            #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+            WeightData::Mmap(m) => m,
+            WeightData::Borrowed(b) => b,
+        }
+    }
+}
+
+pub struct Weights<'a> {
+    data: WeightData<'a>,
     index: HashMap<String, Entry>,
 }
 
-impl Weights {
-    /// Open either a safetensors file or a PyTorch `pytorch_model.bin` (ZIP+pickle);
-    /// auto-detected by magic bytes.
-    pub fn open(path: &str) -> std::io::Result<Self> {
-        let file = File::open(path)?;
-        let mmap = unsafe { Mmap::map(&file)? };
-        let index = if mmap.len() >= 4 && &mmap[0..4] == b"PK\x03\x04" {
+impl<'a> Weights<'a> {
+    /// Native disk loader: memory-maps a file from disk (CLI / desktop only).
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+    pub fn open(path: &str) -> std::io::Result<Weights<'static>> {
+        let file = std::fs::File::open(path)?;
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        let index = Self::build_index(&mmap)?;
+        Ok(Weights {
+            data: WeightData::Mmap(mmap),
+            index,
+        })
+    }
+
+    /// In-memory buffer loader: accepts raw bytes directly (WASM / Web Worker).
+    pub fn from_bytes(bytes: &'a [u8]) -> std::io::Result<Self> {
+        let index = Self::build_index(bytes)?;
+        Ok(Weights {
+            data: WeightData::Borrowed(bytes),
+            index,
+        })
+    }
+
+    /// Auto-detects PyTorch ZIP vs. Safetensors format and builds the tensor index.
+    fn build_index(buf: &[u8]) -> std::io::Result<HashMap<String, Entry>> {
+        if buf.len() >= 4 && &buf[0..4] == b"PK\x03\x04" {
             // PyTorch .bin (ZIP archive)
-            crate::pth::index_pth(&mmap)
+            Ok(crate::pth::index_pth(buf)
                 .into_iter()
                 .map(|e| (e.name, Entry { dtype: e.dtype, shape: e.shape, start: e.start, end: e.end }))
-                .collect()
+                .collect())
         } else {
-            // safetensors
-            let header_len = u64::from_le_bytes(mmap[0..8].try_into().unwrap()) as usize;
-            let json: serde_json::Value = serde_json::from_slice(&mmap[8..8 + header_len])
+            // Safetensors
+            let header_len = u64::from_le_bytes(
+                buf[0..8].try_into().map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+            ) as usize;
+
+            let json: serde_json::Value = serde_json::from_slice(&buf[8..8 + header_len])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
             let data_start = 8 + header_len;
             let mut index = HashMap::new();
+
             if let serde_json::Value::Object(map) = json {
                 for (k, v) in map {
                     if k == "__metadata__" {
@@ -53,9 +90,8 @@ impl Weights {
                     index.insert(k, Entry { dtype, shape, start, end });
                 }
             }
-            index
-        };
-        Ok(Weights { mmap, index })
+            Ok(index)
+        }
     }
 
     pub fn has(&self, name: &str) -> bool {
@@ -72,13 +108,13 @@ impl Weights {
         self.index.get(name).map(|e| e.shape.as_slice())
     }
 
-    /// Fetch a tensor as fp32 (F16 upcast losslessly). Panics if name missing.
+    /// Fetch a tensor as fp32 (F16 and BF16 upcast losslessly). Panics if name missing.
     pub fn get(&self, name: &str) -> Tensor {
         let e = self
             .index
             .get(name)
             .unwrap_or_else(|| panic!("weight not found: {name}"));
-        let bytes = &self.mmap[e.start..e.end];
+        let bytes = &self.data[e.start..e.end];
         let data: Vec<f32> = match e.dtype.as_str() {
             "F32" => bytes
                 .chunks_exact(4)
@@ -100,7 +136,7 @@ impl Weights {
     pub fn get_i64(&self, name: &str) -> Vec<i64> {
         let e = self.index.get(name).unwrap_or_else(|| panic!("weight not found: {name}"));
         assert_eq!(e.dtype, "I64");
-        let bytes = &self.mmap[e.start..e.end];
+        let bytes = &self.data[e.start..e.end];
         bytes
             .chunks_exact(8)
             .map(|c| i64::from_le_bytes(c.try_into().unwrap()))

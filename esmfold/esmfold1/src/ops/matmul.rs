@@ -8,7 +8,8 @@
 //! tests decide whether a divergence is fp32-accumulation noise or a real bug.
 
 use crate::tensor::Tensor;
-use rayon::prelude::*;
+//use rayon::prelude::*;
+use crate::par_iter::*;
 
 /// Vectorizable fp32 dot product with a fixed 8-lane partial-sum order
 /// (deterministic; lets LLVM emit AVX FMA for the reduction).

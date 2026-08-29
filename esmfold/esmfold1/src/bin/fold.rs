@@ -12,7 +12,7 @@ use esmfold::pipeline::fold;
 use esmfold::weights::Weights;
 use std::time::Instant;
 
-fn find_weights(arg: Option<String>) -> Weights {
+fn find_weights(arg: Option<String>) -> Weights<'static> {
     let path = arg
         .or_else(|| std::env::var("ESMFOLD_WEIGHTS").ok())
         .or_else(|| {

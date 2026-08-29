@@ -7,7 +7,8 @@ use crate::ops;
 use crate::rigid::{self, Frame};
 use crate::tensor::Tensor;
 use crate::weights::Weights;
-use rayon::prelude::*;
+//use rayon::prelude::*;
+use crate::par_iter::*;
 
 const C_S: usize = 384;
 const C_Z: usize = 128;

@@ -28,6 +28,7 @@ pub struct Constants {
 static EMBEDDED: &[u8] = include_bytes!("../fixtures/constants/residue_constants.safetensors");
 
 impl Constants {
+    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
     pub fn load(path: &str) -> Self {
         let w = Weights::open(path).expect("constants safetensors");
         Self::from_getter(|n| w.get(n).data)

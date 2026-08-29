@@ -6,7 +6,8 @@
 use crate::ops;
 use crate::tensor::Tensor;
 use crate::weights::Weights;
-use rayon::prelude::*;
+//use rayon::prelude::*;
+use crate::par_iter::*;
 
 pub const C_S: usize = 1024;
 pub const C_Z: usize = 128;
