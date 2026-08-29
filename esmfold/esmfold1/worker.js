@@ -1,11 +1,18 @@
 import init, { alloc_bytes, fold_esmfold1_from_ptr } from './pkg/esmfold.js';
 
-self.onmessage = async (e) => {
-  const { fasta, weightsUrl } = e.data;
+let wasmInstance = null;
+let cachedPtr = null;
+let cachedContentLength = 0;
+let isLoaded = false;
+let loadPromise = null;
 
-  try {
-    self.postMessage({ type: 'status', message: 'Initialising 64-bit WASM runtime...' });
-    const wasm = await init();
+async function ensureWeightsLoaded(weightsUrl) {
+  if (isLoaded) return;
+  if (loadPromise) return loadPromise;
+
+  loadPromise = (async () => {
+    self.postMessage({ type: 'status', message: 'Initialising WASM runtime...' });
+    wasmInstance = await init();
 
     self.postMessage({ type: 'status', message: `Streaming weights from ${weightsUrl}...` });
     const response = await fetch(weightsUrl);
@@ -19,11 +26,14 @@ self.onmessage = async (e) => {
       message: `Allocating ${(contentLength / (1024 * 1024 * 1024)).toFixed(2)} GB in WASM linear memory...`
     });
 
-    // Pass BigInt for wasm64 memory size, get pointer offset
+    // Allocate once in WASM linear memory
     const ptr = alloc_bytes(BigInt(contentLength));
     if (!ptr || ptr === 0) {
       throw new Error("Failed to allocate linear memory for weights buffer.");
     }
+
+    cachedPtr = ptr;
+    cachedContentLength = contentLength;
 
     const reader = response.body.getReader();
     let currentPtr = Number(ptr);
@@ -33,8 +43,8 @@ self.onmessage = async (e) => {
       const { done, value } = await reader.read();
       if (done) break;
 
-      // Always access wasm.memory.buffer dynamically on each chunk
-      new Uint8Array(wasm.memory.buffer, currentPtr, value.byteLength).set(value);
+      // Access wasmInstance.memory.buffer dynamically on each chunk in case of memory.grow
+      new Uint8Array(wasmInstance.memory.buffer, currentPtr, value.byteLength).set(value);
 
       currentPtr += value.byteLength;
       bytesReceived += value.byteLength;
@@ -47,7 +57,22 @@ self.onmessage = async (e) => {
       }
     }
 
-    self.postMessage({ type: 'status', message: 'Weights loaded. Starting fold...' });
+    isLoaded = true;
+    self.postMessage({ type: 'status', message: 'Weights loaded and pinned in memory. Engine ready.' });
+  })();
+
+  return loadPromise;
+}
+
+self.onmessage = async (e) => {
+  const { fasta, weightsUrl } = e.data;
+
+  try {
+    // 1. Paid only on the first call (or skips straight through if already loaded)
+    await ensureWeightsLoaded(weightsUrl);
+
+    // 2. Fast inference path
+    self.postMessage({ type: 'status', message: 'Starting fold inference...' });
     const startTime = performance.now();
 
     const onProgress = (stage, fraction) => {
@@ -57,8 +82,12 @@ self.onmessage = async (e) => {
       });
     };
 
-    // Pass ptr (number) and length (BigInt)
-    const pdb = fold_esmfold1_from_ptr(fasta, ptr, BigInt(contentLength), onProgress);
+    const pdb = fold_esmfold1_from_ptr(
+      fasta,
+      cachedPtr,
+      BigInt(cachedContentLength),
+      onProgress
+    );
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
 
     self.postMessage({ type: 'complete', pdb, elapsed });
