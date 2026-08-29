@@ -113,79 +113,75 @@ impl<'a> Weights<'a> {
         self.index.get(name).map(|e| e.shape.as_slice())
     }
 
-    /// Fetch a tensor as fp32 (F16 and BF16 upcast losslessly). Panics if name missing.
-    pub fn get(&self, name: &str) -> Tensor {
-        crate::web_log!("--> Entered weights.get for '{}'", name);
 
-        let e = match self.index.get(name) {
-            Some(entry) => entry,
-            None => {
-                crate::web_error!("CRITICAL: weight not found: '{name}'");
-                panic!("weight not found: {name}");
-            }
-        };
+use std::arch::wasm32::*;
 
-        crate::web_log!(
-            "weights.get('{}'): dtype={}, shape={:?}, offset=[{}..{}]",
-            name, e.dtype, e.shape, e.start, e.end
-        );
+/// SIMD vectorised get() on weights 
+pub fn get(&self, name: &str) -> Tensor {
+    let e = match self.index.get(name) {
+        Some(entry) => entry,
+        None => panic!("weight not found: {name}"),
+    };
 
-        if e.start >= self.data.len() || e.end > self.data.len() {
-            crate::web_error!(
-                "CRITICAL: slice [{}..{}] out of bounds for buffer len {}",
-                e.start, e.end, self.data.len()
-            );
-            panic!("slice out of bounds for {name}");
-        }
-
-        let bytes = &self.data[e.start..e.end];
-        let num_elements: usize = e.shape.iter().product();
-
-        let data: Vec<f32> = match e.dtype.as_str() {
-            "F32" => {
-                let mut v = Vec::with_capacity(num_elements);
-                for c in bytes.chunks_exact(4) {
-                    v.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
-                }
-                v
-            }
-            "F16" => {
-                let mut v = Vec::with_capacity(num_elements);
-                for c in bytes.chunks_exact(2) {
-                    v.push(half::f16::from_le_bytes([c[0], c[1]]).to_f32());
-                }
-                v
-            }
-            "BF16" => {
-                let mut v = Vec::with_capacity(num_elements);
-                for c in bytes.chunks_exact(2) {
-                    v.push(half::bf16::from_le_bytes([c[0], c[1]]).to_f32());
-                }
-                v
-            }
-            other => panic!("get() unsupported dtype {other} for {name}"),
-        };
-
-        crate::web_log!("<-- Returning Tensor for '{}' (len {})", name, data.len());
-        Tensor::new(data, e.shape.clone())
+    if e.start >= self.data.len() || e.end > self.data.len() {
+        panic!("slice out of bounds for {name}");
     }
 
-    pub fn get_i64(&self, name: &str) -> Vec<i64> {
-        let e = self.index.get(name).unwrap_or_else(|| panic!("weight not found: {name}"));
-        assert_eq!(e.dtype, "I64");
+    let bytes = &self.data[e.start..e.end];
+    let num_elements: usize = e.shape.iter().product();
 
-        if e.start >= self.data.len() || e.end > self.data.len() {
-            crate::web_error!(
-                "CRITICAL: slice [{}..{}] out of bounds for buffer len {}",
-                e.start, e.end, self.data.len()
-            );
-            panic!("slice out of bounds for {name}");
+    let data: Vec<f32> = match e.dtype.as_str() {
+        "F32" => {
+            // Direct zero-copy slice cast when aligned, or fast memcpy
+            let mut v = vec![0.0f32; num_elements];
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr() as *const f32,
+                    v.as_mut_ptr(),
+                    num_elements,
+                );
+            }
+            v
         }
+        "BF16" => {
+            let mut v = Vec::with_capacity(num_elements);
+            let u16_ptr = bytes.as_ptr() as *const u16;
+            let mut i = 0;
 
-        let bytes = &self.data[e.start..e.end];
-        bytes
-            .chunks_exact(8)
-            .map(|c| i64::from_le_bytes(c.try_into().unwrap()))
-            .collect()
-    }
+            // Unpack 8 BF16 elements at once using 128-bit SIMD
+            unsafe {
+                let dst_ptr = v.as_mut_ptr() as *mut v128;
+                while i + 8 <= num_elements {
+                    let raw_128 = v128_load(u16_ptr.add(i) as *const v128);
+                    
+                    // Shift 16 bits to become f32 high bits
+                    let f32_low = i32x4_shl(i32x4_extend_low_i16x8(raw_128), 16);
+                    let f32_high = i32x4_shl(i32x4_extend_high_i16x8(raw_128), 16);
+
+                    v128_store(dst_ptr.add(i / 4), f32_low);
+                    v128_store(dst_ptr.add((i / 4) + 1), f32_high);
+                    i += 8;
+                }
+                v.set_len(i);
+            }
+
+            // Scalar remainder
+            while i < num_elements {
+                let raw = u16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
+                v.push(f32::from_bits((raw as u32) << 16));
+                i += 1;
+            }
+            v
+        }
+        "F16" => {
+            let mut v = Vec::with_capacity(num_elements);
+            for c in bytes.chunks_exact(2) {
+                v.push(half::f16::from_le_bytes([c[0], c[1]]).to_f32());
+            }
+            v
+        }
+        other => panic!("unsupported dtype {other}"),
+    };
+
+    Tensor::new(data, e.shape.clone())
 }
