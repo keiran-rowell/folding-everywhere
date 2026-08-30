@@ -1,4 +1,4 @@
-import init, { alloc_bytes, fold_esmfold1_from_ptr } from './pkg/esmfold1.js';
+import init, { alloc_bytes, fold_esmfold1_from_ptr, initThreadPool } from './pkg/esmfold1.js';
 
 const REPORT_INTERVAL = 200 * 1024 * 1024;
 
@@ -8,6 +8,12 @@ self.onmessage = async (e) => {
   try {
     self.postMessage({ type: 'status', message: 'Initialising WASM runtime...' });
     const wasm = await init();
+
+    if (typeof initThreadPool === 'function') {
+      const threads = navigator.hardwareConcurrency || 4;
+      await initThreadPool(threads);
+      self.postMessage({ type: 'status', message: `Initialized WASM Rayon thread pool (${threads} threads).` });
+    }
 
     self.postMessage({ type: 'status', message: `Streaming weights from ${weightsUrl}...` });
     const response = await fetch(weightsUrl);

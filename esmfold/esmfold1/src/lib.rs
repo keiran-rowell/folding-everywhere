@@ -114,3 +114,6 @@ pub fn fold_esmfold1_from_ptr(
 
     Ok(pdb_str)
 }
+
+#[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+pub use wasm_bindgen_rayon::init_thread_pool;

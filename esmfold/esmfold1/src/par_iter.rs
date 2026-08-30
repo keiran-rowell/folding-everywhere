@@ -1,14 +1,14 @@
 //! Transparent parallel / sequential iterator abstraction for native vs WASM.
 
-#[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+#[cfg(any(not(any(target_arch = "wasm32", target_arch = "wasm64")), target_feature = "atomics"))]
 pub use rayon::prelude::*;
 
-#[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+#[cfg(all(any(target_arch = "wasm32", target_arch = "wasm64"), not(target_feature = "atomics")))]
 pub trait ParChunksMutShim<'a, T: 'a> {
     fn par_chunks_mut(self, chunk_size: usize) -> std::slice::ChunksMut<'a, T>;
 }
 
-#[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+#[cfg(all(any(target_arch = "wasm32", target_arch = "wasm64"), not(target_feature = "atomics")))]
 impl<'a, T: 'a> ParChunksMutShim<'a, T> for &'a mut [T] {
     #[inline]
     fn par_chunks_mut(self, chunk_size: usize) -> std::slice::ChunksMut<'a, T> {
@@ -16,7 +16,7 @@ impl<'a, T: 'a> ParChunksMutShim<'a, T> for &'a mut [T] {
     }
 }
 
-#[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+#[cfg(all(any(target_arch = "wasm32", target_arch = "wasm64"), not(target_feature = "atomics")))]
 impl<'a, T: 'a> ParChunksMutShim<'a, T> for &'a mut Vec<T> {
     #[inline]
     fn par_chunks_mut(self, chunk_size: usize) -> std::slice::ChunksMut<'a, T> {
