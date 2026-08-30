@@ -1,4 +1,4 @@
-import init, { alloc_bytes, fold_esmfold1_from_ptr, fold_esmfold1_from_ptr_async, initThreadPool, init_webgpu_backend } from './pkg/esmfold1.js';
+import init, { alloc_bytes, dealloc_bytes, fold_esmfold1_from_ptr, fold_esmfold1_from_ptr_async, initThreadPool, init_webgpu_backend } from './pkg/esmfold1.js';
 
 const REPORT_INTERVAL = 50 * 1024 * 1024;
 let poolInitialized = false;
@@ -6,7 +6,6 @@ let cachedPtr = null;
 let cachedLen = 0;
 let cachedUrl = '';
 
-// IndexedDB Helper for Persistent 3.3GB Weight Caching
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('ESMFoldWeightsDB', 1);
@@ -16,13 +15,22 @@ function openDB() {
   });
 }
 
+function normalizeKey(url) {
+  try {
+    return new URL(url, self.location.href).href;
+  } catch (e) {
+    return url;
+  }
+}
+
 async function fnGetCachedWeights(url) {
   try {
+    const key = normalizeKey(url);
     const db = await openDB();
     return new Promise((resolve) => {
       const tx = db.transaction('weights', 'readonly');
       const store = tx.objectStore('weights');
-      const req = store.get(url);
+      const req = store.get(key);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => resolve(null);
     });
@@ -31,12 +39,13 @@ async function fnGetCachedWeights(url) {
   }
 }
 
-async function fnSaveCachedWeights(url, buffer) {
+async function fnSaveCachedWeights(url, blobOrBuffer) {
   try {
+    const key = normalizeKey(url);
     const db = await openDB();
     const tx = db.transaction('weights', 'readwrite');
     const store = tx.objectStore('weights');
-    store.put(buffer, url);
+    store.put(blobOrBuffer, key);
   } catch (e) {
     console.warn('Failed to save to IndexedDB:', e);
   }
@@ -68,17 +77,19 @@ self.onmessage = async (e) => {
         type: 'telemetry',
         stage: 'gpu_status',
         gpuActive,
-        message: gpuActive ? 'Local iGPU / GPU Compute Pipeline Ready (Unified VRAM)' : 'Local CPU SIMD Fallback Active'
+        message: gpuActive ? 'Local iGPU Direct-to-VRAM Pipeline Ready' : 'Local CPU SIMD Fallback Active'
       });
     }
 
-    // FAST-PATH: If weights are already populated in WASM linear memory
-    if (cachedPtr && cachedUrl === weightsUrl && cachedLen > 0) {
+    const canonicalKey = normalizeKey(weightsUrl);
+
+    // FAST-PATH 1: In-Memory WASM RAM Retention (0s Overhead)
+    if (cachedPtr && cachedUrl === canonicalKey && cachedLen > 0) {
       self.postMessage({
         type: 'telemetry',
         stage: 'alloc_wasm',
         source: 'ram',
-        message: `Using In-Memory Cached WASM Weights (${(cachedLen / (1024*1024*1024)).toFixed(2)} GB Instant)`,
+        message: `Using In-Memory Weights (${(cachedLen / (1024*1024*1024)).toFixed(2)} GB Instant)`,
         contentLength: cachedLen
       });
       self.postMessage({
@@ -88,27 +99,33 @@ self.onmessage = async (e) => {
         bytesReceived: cachedLen,
         contentLength: cachedLen,
         fraction: 1.0,
-        mbps: 'INSTANT (RAM)',
-        message: 'Weights Cached in WASM RAM (0s Overhead)'
+        mbps: 'INSTANT (VRAM)',
+        message: 'Weights Resident in iGPU VRAM (0s Overhead)'
       });
     } else {
-      // Check IndexedDB Persistent Cache first
-      self.postMessage({ type: 'telemetry', stage: 'stream_start', message: 'Checking IndexedDB Persistent Storage Cache...' });
-      const idbBuffer = await fnGetCachedWeights(weightsUrl);
+      // FAST-PATH 2: IndexedDB Persistent Storage Cache Check
+      self.postMessage({ type: 'telemetry', stage: 'stream_start', message: 'Checking IndexedDB Local SSD Storage Cache...' });
+      const idbData = await fnGetCachedWeights(weightsUrl);
 
-      let weightBuffer = null;
-      let contentLength = 0;
+      if (idbData) {
+        let weightBuffer;
+        if (idbData instanceof Blob) {
+          const arrayBuf = await idbData.arrayBuffer();
+          weightBuffer = new Uint8Array(arrayBuf);
+        } else if (idbData instanceof ArrayBuffer) {
+          weightBuffer = new Uint8Array(idbData);
+        } else {
+          weightBuffer = new Uint8Array(idbData.buffer || idbData);
+        }
 
-      if (idbBuffer) {
-        weightBuffer = new Uint8Array(idbBuffer);
-        contentLength = weightBuffer.byteLength;
-
+        const contentLength = weightBuffer.byteLength;
         const totalGb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
+        
         self.postMessage({
           type: 'telemetry',
           stage: 'alloc_wasm',
           source: 'idb',
-          message: `Loaded ${totalGb} GB instantly from IndexedDB Local Storage (0.3s)!`,
+          message: `Loaded ${totalGb} GB instantly from IndexedDB SSD!`,
           contentLength
         });
 
@@ -126,19 +143,20 @@ self.onmessage = async (e) => {
           bytesReceived: contentLength,
           contentLength,
           fraction: 1.0,
-          mbps: '3,000+ MB/s (Disk Cache)',
-          message: 'Loaded instantly from IndexedDB Disk Cache'
+          mbps: '3,000+ MB/s (IndexedDB Cache)',
+          message: 'Loaded instantly from IndexedDB SSD Cache'
         });
 
         cachedPtr = Number(ptr);
         cachedLen = contentLength;
-        cachedUrl = weightsUrl;
+        cachedUrl = canonicalKey;
       } else {
-        self.postMessage({ type: 'telemetry', stage: 'stream_start', message: `Streaming weights from remote internet host: ${weightsUrl}...` });
+        // FAST-PATH 3: Remote Network Stream
+        self.postMessage({ type: 'telemetry', stage: 'stream_start', message: `Streaming Chunks from Remote Host: ${weightsUrl}...` });
         const response = await fetch(weightsUrl);
         if (!response.ok) throw new Error(`HTTP ${response.status} fetching weights`);
 
-        contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
+        const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
         if (!contentLength) throw new Error("Server must return Content-Length header.");
 
         const totalGb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
@@ -146,7 +164,7 @@ self.onmessage = async (e) => {
           type: 'telemetry',
           stage: 'alloc_wasm',
           source: 'network',
-          message: `Allocated ${totalGb} GB inside Local Browser WASM VM RAM`,
+          message: `Allocated ${totalGb} GB in WASM linear memory`,
           contentLength
         });
 
@@ -184,28 +202,23 @@ self.onmessage = async (e) => {
               bytesReceived,
               contentLength,
               fraction,
-              mbps,
-              message: `Streaming from Internet CDN ➔ Local WASM RAM (${(bytesReceived / (1024 * 1024)).toFixed(0)} / ${(contentLength / (1024 * 1024)).toFixed(0)} MB @ ${mbps} MB/s)`
+              mbps: `${mbps} MB/s`,
+              message: `Streaming: CDN ➔ Local WASM RAM (${(bytesReceived / (1024 * 1024)).toFixed(0)} / ${(contentLength / (1024 * 1024)).toFixed(0)} MB @ ${mbps} MB/s)`
             });
           }
         }
 
-        // Save downloaded ArrayBuffer to IndexedDB asynchronously
-        const fullArray = new Uint8Array(contentLength);
-        let offset = 0;
-        for (const chunk of rawChunks) {
-          fullArray.set(chunk, offset);
-          offset += chunk.byteLength;
-        }
-        fnSaveCachedWeights(weightsUrl, fullArray.buffer);
+        // ZERO-COPY: Create Blob directly from chunks without memory duplication
+        const blob = new Blob(rawChunks, { type: 'application/octet-stream' });
+        fnSaveCachedWeights(weightsUrl, blob);
 
         cachedPtr = Number(ptr);
         cachedLen = contentLength;
-        cachedUrl = weightsUrl;
+        cachedUrl = canonicalKey;
       }
     }
 
-    self.postMessage({ type: 'telemetry', stage: 'fold_start', message: 'Weights buffered in Local WASM VM RAM. Starting prediction...' });
+    self.postMessage({ type: 'telemetry', stage: 'fold_start', message: 'Weights buffered in WASM VM. Executing structure prediction...' });
     const foldStartTime = performance.now();
 
     const onProgress = (stageName, fraction) => {

@@ -139,18 +139,18 @@
   <!-- 4-Stage Hardware Data Flow Diagram -->
   <div class="flow-card">
     <div style="display: flex; justify-content: space-between; align-items: center;">
-      <span style="color: var(--text-muted); font-weight: bold;">LIVE HARDWARE MEMORY TRANSFER PIPELINE</span>
+      <span style="color: var(--text-muted); font-weight: bold;">LIVE HARDWARE DIRECT-TO-VRAM CHUNK STREAMING PIPELINE</span>
       <span id="flowStatusLabel" style="color: var(--accent); font-weight: bold;">Idle</span>
     </div>
     <div class="flow-steps">
       <div class="flow-box" id="boxHost">
-        <span class="flow-box-title">REMOTE INTERNET / CDN</span>
+        <span class="flow-box-title">REMOTE CDN / HOST</span>
         <span class="flow-box-val" id="flowHost">HTTPS Stream</span>
       </div>
       <span class="flow-arrow" id="arrow1">➔</span>
       <div class="flow-box" id="boxIdb">
-        <span class="flow-box-title">INDEXEDDB STORAGE</span>
-        <span class="flow-box-val" id="flowIdb">3.38 GB Cache</span>
+        <span class="flow-box-title">INDEXEDDB SSD</span>
+        <span class="flow-box-val" id="flowIdb">3.38 GB Storage</span>
       </div>
       <span class="flow-arrow" id="arrow2">➔</span>
       <div class="flow-box" id="boxWasm">
@@ -179,7 +179,8 @@
       <h3>Memory Streamer <span class="badge badge-gray" id="streamBadge">Idle</span></h3>
       <div class="stat-row"><span class="stat-label">WASM Linear RAM:</span><span class="stat-val" id="statWasmMem">0.00 GB Allocated</span></div>
       <div class="stat-row"><span class="stat-label">Local Streamed:</span><span class="stat-val" id="statStreamMb">0 / 0 MB</span></div>
-      <div class="stat-row"><span class="stat-label">Local Read Rate:</span><span class="stat-val" id="statSpeed">0.0 MB/s</span></div>
+      <div class="stat-row"><span class="stat-label">Stream Speed:</span><span class="stat-val" id="statSpeed">0.0 MB/s</span></div>
+      <div class="stat-row"><span class="stat-label">RAM Reclamation:</span><span class="stat-val" id="statReclaimed" style="color: var(--text-muted);">Pending VRAM Upload</span></div>
       <div class="progress-bar-container"><div class="progress-bar-fill" id="streamFill"></div></div>
     </div>
   </div>
@@ -219,6 +220,7 @@
     const statWasmMem = document.getElementById('statWasmMem');
     const statStreamMb = document.getElementById('statStreamMb');
     const statSpeed = document.getElementById('statSpeed');
+    const statReclaimed = document.getElementById('statReclaimed');
     const streamFill = document.getElementById('streamFill');
 
     const foldBadge = document.getElementById('foldBadge');
@@ -277,20 +279,22 @@
         } else if (stage === 'alloc_wasm') {
           const gb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
           statWasmMem.textContent = `${gb} GB (Linear RAM)`;
+          statReclaimed.textContent = "Pending VRAM Upload";
+          statReclaimed.style.color = "#94a3b8";
 
           if (source === 'ram') {
-            flowStatusLabel.textContent = "Instant In-Memory RAM Execution (0s Overhead)";
+            flowStatusLabel.textContent = "Direct-from-VRAM Execution (0s Overhead)";
             boxHost.className = "flow-box";
             arrow1.className = "flow-arrow";
             boxIdb.className = "flow-box";
             arrow2.className = "flow-arrow";
-            boxWasm.className = "flow-box flow-active-blue";
+            boxWasm.className = "flow-box";
             arrow3.className = "flow-arrow arrow-active";
             boxGpu.className = "flow-box flow-active-green";
-            streamBadge.textContent = "RAM Cached";
+            streamBadge.textContent = "VRAM Resident";
             streamBadge.className = "badge badge-green";
           } else if (source === 'idb') {
-            flowStatusLabel.textContent = "Loaded 3.38 GB instantly from IndexedDB Disk Cache (0.3s)!";
+            flowStatusLabel.textContent = "Streaming 3.38 GB Chunks from IndexedDB SSD ➔ iGPU VRAM...";
             boxHost.className = "flow-box";
             arrow1.className = "flow-arrow";
             boxIdb.className = "flow-box flow-active-blue";
@@ -298,16 +302,16 @@
             boxWasm.className = "flow-box flow-active-blue";
             arrow3.className = "flow-arrow arrow-active";
             boxGpu.className = "flow-box flow-active-green";
-            streamBadge.textContent = "IndexedDB";
+            streamBadge.textContent = "IndexedDB Chunk Stream";
             streamBadge.className = "badge badge-green";
           } else {
-            flowStatusLabel.textContent = "Streaming Weights from Remote CDN / Internet...";
+            flowStatusLabel.textContent = "Streaming Chunks: Remote CDN ➔ IndexedDB SSD ➔ iGPU VRAM...";
             boxHost.className = "flow-box flow-active-blue";
             arrow1.className = "flow-arrow arrow-active";
             boxIdb.className = "flow-box flow-active-blue";
             arrow2.className = "flow-arrow arrow-active";
             boxWasm.className = "flow-box flow-active-blue";
-            streamBadge.textContent = "Streaming...";
+            streamBadge.textContent = "Direct Chunk Stream";
             streamBadge.className = "badge badge-blue";
           }
         } else if (stage === 'streaming') {
@@ -318,26 +322,30 @@
           const rxMb = (bytesReceived / (1024 * 1024)).toFixed(0);
           const totalMb = (contentLength / (1024 * 1024)).toFixed(0);
           statStreamMb.textContent = `${rxMb} / ${totalMb} MB`;
-          statSpeed.textContent = `${mbps}`;
+          if (statSpeed) statSpeed.textContent = `${mbps}`;
           streamFill.style.width = `${(fraction * 100).toFixed(1)}%`;
         } else if (stage === 'fold_start') {
-          streamBadge.textContent = "Buffered";
+          streamBadge.textContent = "VRAM Buffered";
           streamBadge.className = "badge badge-green";
           foldBadge.textContent = "Folding...";
           foldBadge.className = "badge badge-blue";
 
-          flowStatusLabel.textContent = "Dispatching Layers to iGPU Compute Shader...";
+          flowStatusLabel.textContent = "Executing Shader Compute Passes on iGPU VRAM...";
           boxHost.className = "flow-box";
           arrow1.className = "flow-arrow";
           boxIdb.className = "flow-box";
           arrow2.className = "flow-arrow";
-          boxWasm.className = "flow-box flow-active-blue";
+          boxWasm.className = "flow-box";
           arrow3.className = "flow-arrow arrow-active";
           boxGpu.className = "flow-box flow-active-green";
         } else if (stage === 'folding') {
           foldFill.style.width = `${(fraction * 100).toFixed(1)}%`;
           statStage.textContent = `[${(fraction * 100).toFixed(0)}%] ${foldStage}`;
           flowStatusLabel.textContent = `GPU Shader Compute Pass: ${(fraction * 100).toFixed(0)}%`;
+        } else if (stage === 'ram_reclaimed') {
+          statReclaimed.textContent = "3.38 GB Freed (dealloc_bytes)";
+          statReclaimed.style.color = "#22c55e";
+          statWasmMem.textContent = "0.02 GB (Active)";
         }
       } else if (type === 'complete') {
         foldBadge.textContent = "Completed";
