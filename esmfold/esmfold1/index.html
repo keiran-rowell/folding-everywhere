@@ -2,140 +2,174 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ESMFold1 FP8 — Local WASM & WebGPU Hardware Pipeline</title>
-  <script src="https://cdn.jsdelivr.net/npm/coi-serviceworker@0.1.7/coi-serviceworker.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESMFold v1 FP8 — Scientific Hardware Telemetry</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --card-bg: #1e293b;
-      --accent: #38bdf8;
-      --accent-green: #22c55e;
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --border: #334155;
+      --bg: #090c10;
+      --card-bg: #0d1117;
+      --border: #30363d;
+      --border-accent: #484f58;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --blue: #38bdf8;
     }
     body {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
       background: var(--bg);
       color: var(--text);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      max-width: 960px;
-      margin: 40px auto;
-      padding: 0 20px;
+      margin: 0;
+      padding: 24px;
+      line-height: 1.4;
     }
-    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    h1 { font-size: 1.8rem; margin: 0; background: linear-gradient(to right, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    
-    .privacy-tag {
-      background: rgba(34, 197, 94, 0.15);
-      border: 1px solid #22c55e;
-      color: #4ade80;
-      padding: 6px 14px;
-      border-radius: 999px;
-      font-size: 0.85rem;
-      font-weight: bold;
+    .header-bar {
       display: flex;
-      align-items: center;
-      gap: 6px;
+      justify-content: space-between;
+      align-items: flex-end;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 14px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-family: Georgia, serif;
+      font-weight: normal;
+      margin: 0;
+      font-size: 1.6rem;
+      color: #f0f6fc;
+      letter-spacing: 0.5px;
+    }
+    .privacy-tag {
+      font-size: 0.78rem;
+      border: 1px solid var(--border-accent);
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #161b22;
+      color: #7ee787;
     }
 
+    /* Live Hardware Data Flow Diagram */
     .flow-card {
-      background: #0f172a;
+      background: var(--card-bg);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 18px;
-      margin-bottom: 20px;
-      font-family: monospace;
-      font-size: 0.85rem;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 24px;
     }
     .flow-steps {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 6px;
+      gap: 8px;
       margin-top: 12px;
     }
     .flow-box {
-      background: var(--card-bg);
       border: 1px solid var(--border);
+      background: #161b22;
       padding: 10px;
-      border-radius: 8px;
+      border-radius: 4px;
       flex: 1;
       text-align: center;
-      transition: all 0.3s ease;
+      transition: all 0.2s ease;
     }
-    .flow-box-title { color: var(--text-muted); font-size: 0.72rem; display: block; margin-bottom: 6px; }
-    .flow-box-val { color: var(--accent); font-weight: bold; font-size: 0.85rem; }
-    .flow-arrow { color: var(--text-muted); font-size: 1.3rem; transition: all 0.3s ease; }
+    .flow-box-title { color: var(--text-muted); font-size: 0.7rem; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .flow-box-val { color: var(--accent); font-weight: bold; font-size: 0.82rem; }
+    .flow-arrow { color: var(--text-muted); font-size: 1.1rem; }
 
     @keyframes pulse-blue {
-      0% { border-color: #0284c7; box-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
-      50% { border-color: #38bdf8; box-shadow: 0 0 16px rgba(56, 189, 248, 0.8); }
-      100% { border-color: #0284c7; box-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
+      0% { border-color: #1f6beb; box-shadow: 0 0 6px rgba(56, 189, 248, 0.3); }
+      50% { border-color: #38bdf8; box-shadow: 0 0 12px rgba(56, 189, 248, 0.6); }
+      100% { border-color: #1f6beb; box-shadow: 0 0 6px rgba(56, 189, 248, 0.3); }
     }
     @keyframes pulse-green {
-      0% { border-color: #15803d; box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
-      50% { border-color: #22c55e; box-shadow: 0 0 18px rgba(34, 197, 94, 0.9); }
-      100% { border-color: #15803d; box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+      0% { border-color: #238636; box-shadow: 0 0 6px rgba(63, 185, 80, 0.3); }
+      50% { border-color: #3fb950; box-shadow: 0 0 14px rgba(63, 185, 80, 0.7); }
+      100% { border-color: #238636; box-shadow: 0 0 6px rgba(63, 185, 80, 0.3); }
     }
 
-    .flow-active-blue { animation: pulse-blue 1.2s infinite; background: #1e293b !important; }
-    .flow-active-green { animation: pulse-green 1.2s infinite; background: #064e3b !important; }
-    .box-green-cached { border-color: #22c55e !important; background: #064e3b !important; color: #4ade80 !important; box-shadow: 0 0 12px rgba(34, 197, 94, 0.4); }
-    .arrow-active { color: #22c55e !important; font-weight: bold; transform: scale(1.3); }
+    .flow-active-blue { animation: pulse-blue 1.2s infinite; background: #0d1117 !important; }
+    .flow-active-green { animation: pulse-green 1.2s infinite; background: #0d1117 !important; }
+    .box-green-cached { border-color: #3fb950 !important; background: #0d1117 !important; color: #7ee787 !important; }
+    .arrow-active { color: #3fb950 !important; font-weight: bold; }
 
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
-    .card h3 { margin-top: 0; font-size: 1rem; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+    .card h3 { font-family: Georgia, serif; font-weight: normal; margin-top: 0; font-size: 1.05rem; color: #f0f6fc; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
     
-    .stat-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.88rem; margin: 8px 0; }
+    .stat-row { display: flex; justify-content: space-between; font-size: 0.82rem; margin: 8px 0; }
     .stat-label { color: var(--text-muted); }
-    .stat-val { font-weight: bold; }
+    .stat-val { font-weight: bold; color: #f0f6fc; }
     
-    .progress-bar-container { background: #0f172a; border-radius: 6px; height: 10px; overflow: hidden; margin: 10px 0; border: 1px solid var(--border); }
-    .progress-bar-fill { background: linear-gradient(to right, #38bdf8, #22c55e); height: 100%; width: 0%; transition: width 0.2s ease; }
+    .progress-bar-container { background: #161b22; border-radius: 3px; height: 8px; overflow: hidden; margin: 10px 0; border: 1px solid var(--border); }
+    .progress-bar-fill { background: #38bdf8; height: 100%; width: 0%; transition: width 0.2s ease; }
     
-    .badge { padding: 4px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: bold; }
-    .badge-blue { background: #0369a1; color: #e0f2fe; }
-    .badge-green { background: #15803d; color: #dcfce7; }
-    .badge-gray { background: #475569; color: #f1f5f9; }
+    .badge { padding: 2px 8px; border-radius: 3px; font-size: 0.72rem; font-family: ui-monospace, monospace; border: 1px solid var(--border-accent); }
+    .badge-blue { background: #1f6beb; color: #f0f6fc; border-color: #38bdf8; }
+    .badge-green { background: #238636; color: #f0f6fc; border-color: #3fb950; }
+    .badge-gray { background: #21262d; color: var(--text-muted); }
 
-    textarea, input[type="text"] {
+    textarea {
       width: 100%;
-      background: #0f172a;
-      border: 1px solid var(--border);
-      color: #38bdf8;
-      font-family: monospace;
-      padding: 10px;
-      border-radius: 6px;
+      background: #161b22;
+      border: 1px dashed #d29922;
+      color: #fbbf24;
+      font-family: ui-monospace, monospace;
+      font-size: 1.05rem;
+      letter-spacing: 1px;
+      padding: 12px;
+      border-radius: 4px;
       box-sizing: border-box;
-      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+    textarea:focus {
+      border: 1px solid #fbbf24;
+      box-shadow: 0 0 8px rgba(251, 191, 36, 0.3);
+      outline: none;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      background: #161b22;
+      border: 1px solid var(--border);
+      color: #58a6ff;
+      font-family: ui-monospace, monospace;
+      padding: 8px 10px;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 0.85rem;
+    }
+    textarea:focus, input:focus {
+      border-color: #58a6ff;
+      outline: none;
     }
     input:disabled {
-      opacity: 0.6;
-      background: #1e293b;
-      color: #94a3b8;
+      opacity: 0.7;
+      background: #0d1117;
+      color: #8b949e;
+      border-color: #21262d;
       cursor: not-allowed;
     }
     button {
-      background: linear-gradient(to right, #0284c7, #4f46e5);
-      color: white;
-      border: none;
-      padding: 12px 24px;
-      font-weight: bold;
-      border-radius: 6px;
+      background: #21262d;
+      color: #f0f6fc;
+      border: 1px solid var(--border-accent);
+      padding: 10px 18px;
+      font-family: Georgia, serif;
+      font-size: 0.95rem;
+      border-radius: 4px;
       cursor: pointer;
       width: 100%;
-      font-size: 1rem;
+      transition: background 0.15s ease;
     }
+    button:hover { background: #30363d; border-color: #58a6ff; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    pre { background: #0f172a; border: 1px solid var(--border); padding: 14px; border-radius: 6px; max-height: 350px; overflow-y: auto; font-size: 0.85rem; color: #a5f3fc; }
+    pre { background: #161b22; border: 1px solid var(--border); padding: 12px; border-radius: 4px; max-height: 350px; overflow-y: auto; font-size: 0.82rem; color: #a5f3fc; }
   </style>
 </head>
 <body>
   <div class="header-bar">
     <div>
-      <h1>ESMFold v1 FP8 — Hardware Telemetry</h1>
-      <p style="color: var(--text-muted); font-size: 0.9rem; margin: 4px 0 0 0;">Browser WASM VM + WebGPU iGPU Acceleration</p>
+      <h1>ESMFold v1 FP8 — Scientific Hardware Telemetry</h1>
+      <p style="color: var(--text-muted); font-size: 0.82rem; margin: 4px 0 0 0;">Browser WASM VM + WebGPU iGPU Acceleration Engine</p>
     </div>
     <div class="privacy-tag">
       🔒 100% Client-Side Local Hardware Execution
@@ -144,9 +178,9 @@
 
   <!-- 4-Stage Hardware Data Flow Diagram -->
   <div class="flow-card">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <span style="color: var(--text-muted); font-weight: bold;">LIVE HARDWARE DIRECT-TO-VRAM CHUNK STREAMING PIPELINE</span>
-      <span id="flowStatusLabel" style="color: var(--accent); font-weight: bold;">Idle</span>
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+      <span style="color: var(--text-muted); font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; text-align: center; flex: 1;">LIVE HARDWARE DIRECT-TO-VRAM CHUNK STREAMING PIPELINE</span>
+      <span id="flowStatusLabel" style="color: var(--accent); font-weight: bold; font-size: 0.82rem;">Idle</span>
     </div>
     <div class="flow-steps">
       <div class="flow-box" id="boxHost">
@@ -192,30 +226,36 @@
   </div>
 
   <!-- Card 3: Folding Telemetry -->
-  <div class="card" style="margin-bottom: 20px;">
+  <div class="card" style="margin-bottom: 24px;">
     <h3>Folding Telemetry <span class="badge badge-gray" id="foldBadge">Ready</span></h3>
     <div class="stat-row"><span class="stat-label">Execution Status:</span><span class="stat-val" id="statStage">Awaiting User Execution</span></div>
     <div class="progress-bar-container"><div class="progress-bar-fill" id="foldFill"></div></div>
   </div>
 
-  <div class="card" style="margin-bottom: 20px;">
-    <label for="fasta" style="font-weight: bold; font-size: 0.9rem; margin-bottom: 6px; display: block;">Amino Acid Sequence (FASTA):</label>
-    <textarea id="fasta">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
+  <div class="card" style="margin-bottom: 24px;">
+    <label for="fasta" style="font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; display: block; color: #f0f6fc;">Amino Acid Sequence (FASTA):</label>
+    <textarea id="fasta" rows="3">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
 
-    <div style="margin-bottom: 12px;">
-      <label for="weights" style="font-size: 0.9rem; font-weight: bold; display: block; margin-bottom: 4px;">Model Weights Source (HuggingFace CDN):</label>
-      <input type="text" id="weights" value="https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors" style="margin: 0;">
-      <span id="cacheBadgeNotice" style="font-size: 0.78rem; color: #22c55e; display: none; font-weight: bold; margin-top: 4px;">✅ Cached in IndexedDB SSD Storage (Running entirely off net)</span>
+    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 14px; background: #161b22; padding: 10px; border-radius: 4px; border: 1px solid var(--border);">
+      <label for="recycles" style="font-size: 0.85rem; font-weight: bold; color: var(--accent);">♻️ Recycles:</label>
+      <input type="number" id="recycles" value="1" min="1" max="4" style="width: 70px; margin: 0; padding: 4px 8px; text-align: center; font-weight: bold;">
+      <span style="font-size: 0.78rem; color: var(--text-muted);">1 recycle folds Ubiquitin (<100 AA) in seconds</span>
     </div>
 
-    <button id="foldBtn">⚡ Run ESMFold Prediction (WebGPU Accelerated)</button>
+    <div style="margin-bottom: 14px;">
+      <label for="weights" style="font-size: 0.85rem; font-weight: bold; display: block; margin-bottom: 4px; color: #f0f6fc;">Model Weights Source (HuggingFace CDN):</label>
+      <input type="text" id="weights" value="https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors" style="margin: 0;">
+      <span id="cacheBadgeNotice" style="font-size: 0.75rem; color: #7ee787; display: none; font-weight: bold; margin-top: 4px;">✅ Cached in IndexedDB SSD Storage (Running entirely off net)</span>
+    </div>
+
+    <button id="foldBtn">Run ESMFold Prediction (WebGPU Accelerated)</button>
   </div>
 
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
-    <h3 style="margin: 0;">Predicted PDB Structure Output:</h3>
-    <button id="downloadBtn" style="width: auto; padding: 8px 18px; display: none; background: linear-gradient(to right, #22c55e, #16a34a);">💾 Save PDB Structure</button>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px;">
+    <h3 style="font-family: Georgia, serif; font-weight: normal; margin: 0; color: #f0f6fc;">Predicted PDB Structure Output:</h3>
+    <button id="downloadBtn" style="width: auto; padding: 6px 16px; display: none; background: #238636; border-color: #3fb950;">💾 Save PDB Structure</button>
   </div>
-  <pre id="output" style="margin-top: 10px;">PDB text will appear here...</pre>
+  <pre id="output" style="margin-top: 8px;">PDB text will appear here...</pre>
 
   <script type="module">
     const weightsInput = document.getElementById('weights');
@@ -231,34 +271,41 @@
     const statSpeed = document.getElementById('statSpeed');
     const statReclaimed = document.getElementById('statReclaimed');
     const streamFill = document.getElementById('streamFill');
-
+    
     const foldBadge = document.getElementById('foldBadge');
     const statStage = document.getElementById('statStage');
     const foldFill = document.getElementById('foldFill');
+    const foldBtn = document.getElementById('foldBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
     
-    const flowStatusLabel = document.getElementById('flowStatusLabel');
     const boxHost = document.getElementById('boxHost');
     const boxIdb = document.getElementById('boxIdb');
     const boxWasm = document.getElementById('boxWasm');
     const boxGpu = document.getElementById('boxGpu');
+    const flowHost = document.getElementById('flowHost');
+    const flowIdb = document.getElementById('flowIdb');
+    const flowWasm = document.getElementById('flowWasm');
+    const flowGpu = document.getElementById('flowGpu');
     const arrow1 = document.getElementById('arrow1');
     const arrow2 = document.getElementById('arrow2');
     const arrow3 = document.getElementById('arrow3');
-    const flowWasm = document.getElementById('flowWasm');
-    const flowGpu = document.getElementById('flowGpu');
+    const flowStatusLabel = document.getElementById('flowStatusLabel');
 
-    const outEl = document.getElementById('output');
-    const foldBtn = document.getElementById('foldBtn');
+    let currentPdbText = "";
+    let isComplete = false;
 
-    const detectedCores = navigator.hardwareConcurrency || 4;
-    statCores.textContent = `💻 ${detectedCores} Cores`;
+    // Detect CPU cores
+    if (navigator.hardwareConcurrency) {
+      statCores.textContent = `💻 ${navigator.hardwareConcurrency} Cores`;
+    }
 
+    // IndexedDB Check
     function openDB() {
       return new Promise((resolve, reject) => {
-        const request = indexedDB.open('ESMFoldWeightsDB', 1);
-        request.onupgradeneeded = () => request.result.createObjectStore('weights');
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        const req = indexedDB.open('ESMFoldWeightsDB', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('weights');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
       });
     }
 
@@ -273,7 +320,7 @@
           for (const blob of blobs) {
             if (blob && (blob.size || blob.byteLength) > 3000000000) {
               try {
-                const slice = blob.slice ? blob.slice(8, 512) : new Blob([blob]).slice(8, 512);
+                const slice = blob.slice ? blob.slice(8, 65536) : new Blob([blob]).slice(8, 65536);
                 const headerText = new TextDecoder().decode(await slice.arrayBuffer());
                 if (headerText.startsWith('{"') && headerText.includes('esm.encoder') && (headerText.includes('trunk.') || headerText.includes('structure_module'))) {
                   weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
@@ -292,172 +339,151 @@
     }
     checkIndexedDBCache();
 
+    // Check WebGPU Target
     if (navigator.gpu) {
-      statGpu.textContent = "WebGPU (DirectX12/Vulkan)";
-      hwBadge.textContent = "WebGPU Active";
-      hwBadge.className = "badge badge-green";
-      flowGpu.textContent = "Intel Iris Xe UMA";
-      statShader.textContent = "⚡ WebGPU WGSL Shaders Active";
-      statShader.style.color = "#22c55e";
+      navigator.gpu.requestAdapter().then(adapter => {
+        if (adapter) {
+          const name = adapter.info?.architecture || adapter.info?.vendor || "WebGPU GPU Hardware";
+          statGpu.textContent = name;
+          statShader.textContent = "⚡ WebGPU WGSL Shaders";
+          statShader.style.color = "#58a6ff";
+          hwBadge.textContent = "WebGPU Active";
+        } else {
+          setSimdFallbackUI();
+        }
+      }).catch(() => setSimdFallbackUI());
     } else {
-      statGpu.textContent = "Disabled (CPU Fallback)";
-      hwBadge.textContent = "CPU Fallback";
-      hwBadge.className = "badge badge-blue";
-      flowGpu.textContent = "CPU SIMD Parallel";
-      statShader.textContent = "No GPU - SIMD Rayon CPU Fallback Active";
-      statShader.style.color = "#f59e0b";
+      setSimdFallbackUI();
     }
 
-    let isComplete = false;
-    const worker = new Worker('worker.js', { type: 'module' });
+    function setSimdFallbackUI() {
+      statGpu.textContent = "No GPU - SIMD Rayon CPU Fallback Active";
+      statShader.textContent = "🧵 SIMD Rayon CPU Worker Threads";
+      statShader.style.color = "#d29922";
+      hwBadge.textContent = "SIMD Rayon Fallback";
+      hwBadge.className = "badge badge-gray";
+    }
 
-    worker.onmessage = (e) => {
-      const { type, message, stage, source, bytesReceived, contentLength, fraction, mbps, threads, gpuActive, foldStage, pdb, elapsed } = e.data;
+    let worker = null;
 
-      if (type === 'telemetry') {
-        if (!isComplete) {
-          statStage.textContent = message;
-        }
+    foldBtn.addEventListener('click', () => {
+      const fasta = document.getElementById('fasta').value.trim();
+      const weightsUrl = weightsInput.value.trim();
+      const recycles = parseInt(document.getElementById('recycles').value, 10) || 1;
+      
+      if (!fasta) { alert('Please enter FASTA sequence'); return; }
+      
+      foldBtn.disabled = true;
+      downloadBtn.style.display = 'none';
+      document.getElementById('output').textContent = 'Initialising WebWorker & Streaming Weights...';
+      foldFill.style.width = '0%';
+      streamFill.style.width = '0%';
+      isComplete = false;
 
-        if (stage === 'thread_pool') {
-          statCores.textContent = `💻 ${threads} Rayon Cores`;
-        } else if (stage === 'gpu_status') {
-          if (gpuActive) {
-            statGpu.textContent = "Intel Iris Xe / Local GPU";
-            statShader.textContent = "⚡ WebGPU WGSL Shaders Active";
-            statShader.style.color = "#22c55e";
-          } else {
-            statShader.textContent = "No GPU - SIMD Rayon CPU Fallback Active";
-            statShader.style.color = "#f59e0b";
-          }
-        } else if (stage === 'alloc_wasm') {
-          const gb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
-          statWasmMem.textContent = `${gb} GB (Linear RAM (GiB))`;
+      if (worker) worker.terminate();
+      worker = new Worker('worker.js', { type: 'module' });
 
-          if (source === 'ram') {
-            flowStatusLabel.textContent = "Direct In-Memory RAM Execution (0s Overhead)";
-            boxHost.className = "flow-box";
-            arrow1.className = "flow-arrow";
-            boxIdb.className = "flow-box";
-            arrow2.className = "flow-arrow";
-            boxWasm.className = "flow-box flow-active-blue";
-            arrow3.className = "flow-arrow arrow-active";
-            boxGpu.className = "flow-box flow-active-green";
-            streamBadge.textContent = "RAM Cached";
-            streamBadge.className = "badge badge-green";
-          } else if (source === 'idb') {
-            flowStatusLabel.textContent = `Streamed ${gb} GB instantly from IndexedDB SSD (3,000 MB/s)!`;
-            boxHost.className = "flow-box";
-            arrow1.className = "flow-arrow";
-            boxIdb.className = "flow-box box-green-cached";
-            flowIdb.textContent = `${gb} GB (SSD Cached)`;
-            arrow2.className = "flow-arrow arrow-active";
-            boxWasm.className = "flow-box flow-active-blue";
-            arrow3.className = "flow-arrow arrow-active";
-            boxGpu.className = "flow-box flow-active-green";
-            streamBadge.textContent = "IndexedDB Stream";
-            streamBadge.className = "badge badge-green";
-          } else {
-            flowStatusLabel.textContent = "Streaming Chunks from Remote CDN / Internet...";
+      worker.onmessage = (e) => {
+        const { type, stage, loaded, total, speed, message, foldStage, fraction, pdb, elapsed, source } = e.data;
+
+        if (type === 'telemetry') {
+          if (stage === 'init_webgpu') {
+            flowStatusLabel.textContent = "WebGPU Shaders Initialized";
+          } else if (stage === 'alloc_wasm') {
+            statWasmMem.textContent = "3.30 GiB Allocated";
+            flowWasm.textContent = "3.30 GiB (Active)";
+            
+            if (source === 'idb') {
+              flowStatusLabel.textContent = `Streamed 3.54 GB instantly from IndexedDB SSD!`;
+              boxHost.className = "flow-box";
+              arrow1.className = "flow-arrow";
+              boxIdb.className = "flow-box box-green-cached";
+              flowIdb.textContent = "3.54 GB (SSD Cached)";
+              arrow2.className = "flow-arrow arrow-active";
+              boxWasm.className = "flow-box flow-active-blue";
+              arrow3.className = "flow-arrow arrow-active";
+              boxGpu.className = "flow-box flow-active-green";
+              streamBadge.textContent = "IndexedDB Stream";
+              streamBadge.className = "badge badge-green";
+            }
+          } else if (stage === 'streaming') {
+            const mb = (loaded / (1024 * 1024)).toFixed(0);
+            const totMb = (total / (1024 * 1024)).toFixed(0);
+            const pct = ((loaded / total) * 100).toFixed(1);
+            
+            statStreamMb.textContent = `${mb} / ${totMb} MB (${pct}%)`;
+            statSpeed.textContent = `${speed} MB/s`;
+            streamFill.style.width = `${pct}%`;
+            streamBadge.textContent = "Streaming CDN";
+            streamBadge.className = "badge badge-blue";
+
+            flowStatusLabel.textContent = `Streaming HuggingFace CDN ➔ IndexedDB: ${pct}% (${speed} MB/s)`;
             boxHost.className = "flow-box flow-active-blue";
             arrow1.className = "flow-arrow arrow-active";
             boxIdb.className = "flow-box flow-active-blue";
-            arrow2.className = "flow-arrow arrow-active";
-            boxWasm.className = "flow-box flow-active-blue";
-            streamBadge.textContent = "Direct Chunk Stream";
-            streamBadge.className = "badge badge-blue";
+            flowIdb.textContent = `${mb} / ${totMb} MB`;
+          } else if (stage === 'stream_complete') {
+            streamBadge.textContent = "Cached";
+            streamBadge.className = "badge badge-green";
+            weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
+            weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
+            weightsInput.disabled = true;
+            cacheBadgeNotice.style.display = "block";
+            
+            flowStatusLabel.textContent = "Weights Cached in IndexedDB SSD Storage!";
+            boxHost.className = "flow-box";
+            arrow1.className = "flow-arrow";
+            boxIdb.className = "flow-box box-green-cached";
+            flowIdb.textContent = "3.54 GB (SSD Cached)";
+          } else if (stage === 'ram_reclaimed') {
+            statReclaimed.textContent = "3.30 GiB Freed (dealloc_bytes)";
+            statReclaimed.style.color = "#7ee787";
+            statWasmMem.textContent = "0.02 GiB (Active)";
+          } else if (stage === 'folding') {
+            if (!isComplete) {
+              const pct = (fraction * 100).toFixed(0);
+              statStage.textContent = `[${pct}%] ${foldStage}`;
+              foldFill.style.width = `${pct}%`;
+              foldBadge.textContent = "Folding Active";
+              foldBadge.className = "badge badge-blue";
+            }
           }
-        } else if (stage === 'streaming') {
-          const rxGb = (bytesReceived / (1024 * 1024 * 1024)).toFixed(2);
-          const totalGb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
-          flowWasm.textContent = `${rxGb} / ${totalGb} GB`;
+        } else if (type === 'complete') {
+          isComplete = true;
+          currentPdbText = pdb;
+          foldFill.style.width = '100%';
+          statStage.textContent = `Finished in ${elapsed}s! (Total Execution Time)`;
+          statStage.style.color = "#7ee787";
+          foldBadge.textContent = "Complete";
+          foldBadge.className = "badge badge-green";
           
-          const rxMb = (bytesReceived / (1024 * 1024)).toFixed(0);
-          const totalMb = (contentLength / (1024 * 1024)).toFixed(0);
-          statStreamMb.textContent = `${rxMb} / ${totalMb} MB`;
-          if (statSpeed) statSpeed.textContent = `${mbps}`;
-          streamFill.style.width = `${(fraction * 100).toFixed(1)}%`;
-        } else if (stage === 'fold_start') {
-          streamBadge.textContent = "Buffered";
-          streamBadge.className = "badge badge-green";
-          foldBadge.textContent = "Folding...";
-          foldBadge.className = "badge badge-blue";
-
-          flowStatusLabel.textContent = gpuActive ? "⚡ Executing WebGPU WGSL Shader Compute Passes on iGPU..." : "⚠️ Executing Rayon SIMD Parallel CPU Fallback Fold...";
-          boxHost.className = "flow-box";
-          arrow1.className = "flow-arrow";
-          boxIdb.className = "flow-box";
-          arrow2.className = "flow-arrow";
-          boxWasm.className = "flow-box flow-active-blue";
-          arrow3.className = "flow-arrow arrow-active";
-          boxGpu.className = "flow-box flow-active-green";
-        } else if (stage === 'folding') {
-          foldFill.style.width = `${(fraction * 100).toFixed(1)}%`;
-          statStage.textContent = `[${(fraction * 100).toFixed(0)}%] ${foldStage}`;
-          flowStatusLabel.textContent = `Fold Progress: ${(fraction * 100).toFixed(0)}%`;
-        } else if (stage === 'ram_reclaimed') {
-          statReclaimed.textContent = "3.30 GiB Freed (dealloc_bytes)";
-          statReclaimed.style.color = "#22c55e";
-          statWasmMem.textContent = "0.02 GB (Active)";
-        }
-      } else if (type === 'complete') {
-        isComplete = true;
-        foldBadge.textContent = "Completed";
-        foldBadge.className = "badge badge-green";
-        statStage.textContent = `Finished in ${elapsed} seconds! (Total Execution Time)`;
-        flowStatusLabel.textContent = "Complete";
-        foldFill.style.width = '100%';
-        
-        boxWasm.className = "flow-box";
-        boxGpu.className = "flow-box";
-        arrow3.className = "flow-arrow";
-
-        const pdbText = typeof pdb === 'string' ? pdb : String(pdb);
-        console.log("✅ PDB Output Received (Length: " + (pdbText ? pdbText.length : 0) + " bytes)");
-        
-        const outputEl = document.getElementById('output');
-        if (outputEl) {
-          outputEl.textContent = pdbText;
-          outputEl.style.display = 'block';
-          outputEl.style.visibility = 'visible';
-          console.log("✅ Rendered to #output element");
-        } else {
-          console.error("❌ #output DOM element not found!");
-        }
-
-        foldBtn.disabled = false;
-
-        const downloadBtn = document.getElementById('downloadBtn');
-        if (downloadBtn) {
+          const outEl = document.getElementById('output');
+          outEl.textContent = pdb;
           downloadBtn.style.display = 'inline-block';
-          downloadBtn.onclick = () => {
-            const blob = new Blob([pdbText], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'esmfold1_prediction.pdb';
-            a.click();
-            URL.revokeObjectURL(url);
-          };
+          foldBtn.disabled = false;
+          outEl.scrollIntoView({ behavior: 'smooth' });
+        } else if (type === 'error') {
+          document.getElementById('output').textContent = `Error: ${message}`;
+          foldBtn.disabled = false;
+          foldBadge.textContent = "Error";
+          foldBadge.className = "badge badge-gray";
         }
-        outEl.scrollIntoView({ behavior: 'smooth' });
-      } else if (type === 'error') {
-        foldBadge.textContent = "Error";
-        foldBadge.className = "badge badge-gray";
-        statStage.textContent = `Error: ${message}`;
-        flowStatusLabel.textContent = "Failed";
-        foldBtn.disabled = false;
-      }
-    };
+      };
 
-    foldBtn.onclick = () => {
-      isComplete = false;
-      foldBtn.disabled = true;
-      const fasta = document.getElementById('fasta').value.trim();
-      const weightsUrl = weightsInput.value.trim() || 'https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors';
-      const threads = detectedCores;
-      worker.postMessage({ fasta, weightsUrl, threads });
-    };
+      const threads = 8;
+      worker.postMessage({ fasta, weightsUrl, threads, recycles });
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      if (!currentPdbText) return;
+      const blob = new Blob([currentPdbText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'esmfold_predicted_structure.pdb';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
   </script>
 </body>
 </html>

@@ -296,3 +296,157 @@ impl WebGpuContext {
         Ok(())
     }
 }
+
+#[derive(Clone)]
+pub struct GpuTensor {
+    pub buffer: Arc<wgpu::Buffer>,
+    pub shape: Vec<usize>,
+}
+
+impl GpuTensor {
+    pub fn numel(&self) -> usize {
+        self.shape.iter().product()
+    }
+}
+
+impl WebGpuContext {
+    pub fn upload_to_gpu(&self, t: &crate::tensor::Tensor) -> GpuTensor {
+        let buffer = Arc::new(self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("GpuTensor Activation Buffer"),
+            contents: bytemuck::cast_slice(&t.data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        }));
+        GpuTensor {
+            buffer,
+            shape: t.shape.clone(),
+        }
+    }
+
+    pub fn dispatch_matmul_fp8_in_vram(
+        &self,
+        input: &GpuTensor,
+        fp8_weights: &[u8],
+        scale: f32,
+        bias: Option<&[f32]>,
+        batch_size: usize,
+        in_features: usize,
+        out_features: usize,
+    ) -> Result<GpuTensor, String> {
+        let has_bias = if bias.is_some() { 1u32 } else { 0u32 };
+
+        let uniforms = MatmulUniforms {
+            in_features: in_features as u32,
+            out_features: out_features as u32,
+            batch_size: batch_size as u32,
+            scale,
+            has_bias,
+            _padding: [0; 3],
+        };
+
+        self.queue.write_buffer(&self.scratch_uniforms, 0, bytemuck::cast_slice(&[uniforms]));
+        if let Some(b) = bias {
+            self.queue.write_buffer(&self.scratch_bias, 0, bytemuck::cast_slice(b));
+        }
+
+        let weight_buffer = self.get_or_create_weight_buffer(fp8_weights);
+        let out_bytes = (batch_size * out_features * std::mem::size_of::<f32>()) as u64;
+
+        let out_buffer = Arc::new(self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GpuTensor Output Activation Buffer"),
+            size: out_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }));
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Matmul FP8 In-VRAM Bind Group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.scratch_uniforms.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: input.buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: weight_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.scratch_bias.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: out_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Matmul In-VRAM Command Encoder"),
+        });
+
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Matmul In-VRAM Compute Pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+
+            let workgroups_x = ((out_features as u32) + 15) / 16;
+            let workgroups_y = ((batch_size as u32) + 15) / 16;
+            pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+
+        let mut out_shape = input.shape.clone();
+        let n = out_shape.len();
+        out_shape[n - 1] = out_features;
+
+        Ok(GpuTensor {
+            buffer: out_buffer,
+            shape: out_shape,
+        })
+    }
+
+    pub async fn readback_to_cpu(&self, gpu_t: &GpuTensor) -> Result<crate::tensor::Tensor, String> {
+        let size = (gpu_t.numel() * std::mem::size_of::<f32>()) as u64;
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Staging Readback Buffer"),
+            size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Readback Command Encoder"),
+        });
+        encoder.copy_buffer_to_buffer(&gpu_t.buffer, 0, &staging_buffer, 0, size);
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = staging_buffer.slice(..);
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| {
+            let _ = sender.send(v);
+        });
+
+        self.device.poll(wgpu::Maintain::Wait);
+
+        if let Some(Ok(())) = receiver.receive().await {
+            let data = buffer_slice.get_mapped_range();
+            let result_slice: &[f32] = bytemuck::cast_slice(&data);
+            let vec_data = result_slice.to_vec();
+            drop(data);
+            staging_buffer.unmap();
+            Ok(crate::tensor::Tensor::new(vec_data, gpu_t.shape.clone()))
+        } else {
+            Err("Failed to map staging buffer during readback".to_string())
+        }
+    }
+
+}

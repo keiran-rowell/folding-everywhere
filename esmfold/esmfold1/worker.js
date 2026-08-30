@@ -40,7 +40,7 @@ async function verifySafetensorsBlob(blob) {
     if (size < 3000000000) return false;
 
     // 2. Read first 512 bytes of Safetensors JSON metadata header (0.001ms overhead)
-    const slice = blob.slice ? blob.slice(8, 512) : new Blob([blob]).slice(8, 512);
+    const slice = blob.slice ? blob.slice(8, 65536) : new Blob([blob]).slice(8, 65536);
     const headerBuf = await slice.arrayBuffer();
     const headerText = new TextDecoder().decode(headerBuf);
 
@@ -310,7 +310,8 @@ self.onmessage = async (e) => {
     };
 
     const pdbFn = typeof fold_esmfold1_from_ptr_async === 'function' ? fold_esmfold1_from_ptr_async : fold_esmfold1_from_ptr;
-    const pdb = await pdbFn(fasta, cachedPtr, cachedLen, onProgress);
+    const numRecycles = e.data.recycles || 1;
+    const pdb = await pdbFn(fasta, cachedPtr, cachedLen, numRecycles, onProgress);
     const elapsed = ((performance.now() - foldStartTime) / 1000).toFixed(1);
 
     // Post complete event IMMEDIATELY so PDB output renders to DOM without delay
