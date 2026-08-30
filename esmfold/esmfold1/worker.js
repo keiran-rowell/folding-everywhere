@@ -271,6 +271,9 @@ self.onmessage = async (e) => {
               source: 'network',
               bytesReceived,
               contentLength,
+              loaded: bytesReceived,
+              total: contentLength,
+              speed: parseFloat(mbps),
               fraction,
               mbps: `${mbps} MB/s`,
               message: `Streaming: CDN ➔ Local WASM RAM (${(bytesReceived / (1024 * 1024)).toFixed(0)} / ${(contentLength / (1024 * 1024)).toFixed(0)} MB @ ${mbps} MB/s)`

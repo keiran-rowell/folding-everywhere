@@ -220,7 +220,7 @@
       <span class="flow-arrow" id="arrow3">➔</span>
       <div class="flow-box" id="boxGpu">
         <span class="flow-box-title">iGPU SYSTEM VRAM</span>
-        <span class="flow-box-val" id="flowGpu">Intel Iris Xe UMA</span>
+        <span class="flow-box-val" id="flowGpu">WebGPU Hardware Accelerator</span>
       </div>
     </div>
   </div>
@@ -230,7 +230,7 @@
     <div class="card">
       <h3>Local Hardware <span class="badge badge-blue" id="hwBadge">Detecting...</span></h3>
       <div class="stat-row"><span class="stat-label">Available CPU Cores:</span><span class="stat-val" id="statCores">💻 8 Cores</span></div>
-      <div class="stat-row"><span class="stat-label">WebGPU Target:</span><span class="stat-val" id="statGpu">Intel Iris Xe Graphics</span></div>
+      <div class="stat-row"><span class="stat-label">WebGPU Target:</span><span class="stat-val" id="statGpu">Detecting...</span></div>
       <div class="stat-row"><span class="stat-label">Active Engine:</span><span class="stat-val" id="statShader">Detecting...</span></div>
     </div>
 
@@ -344,7 +344,7 @@
     if (navigator.gpu) {
       navigator.gpu.requestAdapter().then(adapter => {
         if (adapter) {
-          const name = adapter.info?.architecture || adapter.info?.vendor || "WebGPU GPU Hardware";
+          const name = adapter.info?.description || adapter.info?.device || adapter.info?.architecture || adapter.info?.vendor || "WebGPU Hardware Accelerator";
           statGpu.textContent = name;
           statShader.textContent = "⚡ WebGPU WGSL Shaders";
           statShader.style.color = "#58a6ff";
@@ -365,7 +365,106 @@
       hwBadge.className = "badge badge-gray";
     }
 
-    let worker = new Worker('worker.js', { type: 'module' });
+        let worker = new Worker('worker.js', { type: 'module' });
+
+    worker.onmessage = (e) => {
+      const { type, stage, loaded, bytesReceived, total, contentLength, speed, mbps, message, foldStage, fraction, pdb, elapsed, source } = e.data;
+
+      if (type === 'telemetry') {
+        if (stage === 'init_webgpu') {
+          flowStatusLabel.textContent = "WebGPU Shaders Initialized";
+        } else if (stage === 'alloc_wasm') {
+          statWasmMem.textContent = "3.30 GiB Allocated";
+          flowWasm.textContent = "3.30 GiB (Active)";
+          
+          if (source === 'idb') {
+            flowStatusLabel.textContent = `Streamed 3.54 GB instantly from IndexedDB SSD (3,000+ MB/s)!`;
+            statSpeed.textContent = "3000+ MB/s";
+            statStreamMb.textContent = "3543 / 3543 MB (100%)";
+            streamFill.style.width = "100%";
+            boxHost.className = "flow-box";
+            arrow1.className = "flow-arrow";
+            boxIdb.className = "flow-box box-green-cached";
+            flowIdb.textContent = "3.54 GB (SSD Cached)";
+            arrow2.className = "flow-arrow arrow-active";
+            boxWasm.className = "flow-box flow-active-blue";
+            arrow3.className = "flow-arrow arrow-active";
+            boxGpu.className = "flow-box flow-active-green";
+            streamBadge.textContent = "IndexedDB Stream";
+            streamBadge.className = "badge badge-green";
+          }
+        } else if (stage === 'streaming') {
+          const curLoaded = bytesReceived || loaded || 0;
+          const curTotal = contentLength || total || 3542960628;
+          const curSpeed = mbps || (speed ? `${speed} MB/s` : 'NaN MB/s');
+          
+          const mb = (curLoaded / (1024 * 1024)).toFixed(0);
+          const totMb = (curTotal / (1024 * 1024)).toFixed(0);
+          const pctVal = Math.max(0, Math.min(100, (curLoaded / curTotal) * 100));
+          const pct = isNaN(pctVal) ? "0.0" : pctVal.toFixed(1);
+          
+          const loadedGb = (curLoaded / 1e9).toFixed(2);
+          const totalGb = (curTotal / 1e9).toFixed(2);
+
+          statStreamMb.textContent = `${mb} / ${totMb} MB (${pct}%)`;
+          statSpeed.textContent = curSpeed.includes('MB/s') ? curSpeed : `${curSpeed} MB/s`;
+          streamFill.style.width = `${pct}%`;
+          streamBadge.textContent = "Streaming CDN";
+          streamBadge.className = "badge badge-blue";
+
+          statStage.textContent = `Fetching model weights from CDN (${pct}%)`;
+          flowStatusLabel.textContent = `Streaming HuggingFace CDN ➔ IndexedDB: ${pct}% (${curSpeed})`;
+          boxHost.className = "flow-box flow-active-blue";
+          arrow1.className = "flow-arrow arrow-active";
+          boxIdb.className = "flow-box flow-active-blue";
+          flowIdb.textContent = `${loadedGb} / ${totalGb} GB`;
+        } else if (stage === 'stream_complete') {
+          streamBadge.textContent = "Cached";
+          streamBadge.className = "badge badge-green";
+          weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
+          weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
+          weightsInput.disabled = true;
+          cacheBadgeNotice.style.display = "block";
+          
+          flowStatusLabel.textContent = "Weights Cached in IndexedDB SSD Storage!";
+          boxHost.className = "flow-box";
+          arrow1.className = "flow-arrow";
+          boxIdb.className = "flow-box box-green-cached";
+          flowIdb.textContent = "3.54 GB (SSD Cached)";
+        } else if (stage === 'ram_reclaimed') {
+          statReclaimed.textContent = "3.30 GiB Freed (dealloc_bytes)";
+          statReclaimed.style.color = "#7ee787";
+          statWasmMem.textContent = "0.02 GiB (Active)";
+        } else if (stage === 'folding') {
+          if (!isComplete) {
+            const pct = (fraction * 100).toFixed(0);
+            statStage.textContent = `[${pct}%] ${foldStage}`;
+            foldFill.style.width = `${pct}%`;
+            foldBadge.textContent = "Folding Active";
+            foldBadge.className = "badge badge-blue";
+          }
+        }
+      } else if (type === 'complete') {
+        isComplete = true;
+        currentPdbText = pdb;
+        foldFill.style.width = '100%';
+        statStage.textContent = `Finished in ${elapsed}s! (Total Execution Time)`;
+        statStage.style.color = "#7ee787";
+        foldBadge.textContent = "Complete";
+        foldBadge.className = "badge badge-green";
+        
+        const outEl = document.getElementById('output');
+        outEl.textContent = pdb;
+        downloadBtn.style.display = 'inline-block';
+        foldBtn.disabled = false;
+        outEl.scrollIntoView({ behavior: 'smooth' });
+      } else if (type === 'error') {
+        document.getElementById('output').textContent = `Error: ${message}`;
+        foldBtn.disabled = false;
+        foldBadge.textContent = "Error";
+        foldBadge.className = "badge badge-gray";
+      }
+    };
 
     foldBtn.addEventListener('click', () => {
       const fasta = document.getElementById('fasta').value.trim();
@@ -376,112 +475,12 @@
       
       foldBtn.disabled = true;
       downloadBtn.style.display = 'none';
-      // Retain PDB output field untouched until completion
-      statStage.textContent = 'Initialising WebAssembly & Weights Streamer...';
+      statStage.textContent = 'Checking local storage cache...';
       foldBadge.textContent = 'Active';
       foldBadge.className = 'badge badge-blue';
       foldFill.style.width = '5%';
       streamFill.style.width = '0%';
       isComplete = false;
-
-// Re-use pre-warmed background worker
-
-      worker.onmessage = (e) => {
-        const { type, stage, loaded, total, speed, message, foldStage, fraction, pdb, elapsed, source } = e.data;
-
-        if (type === 'telemetry') {
-          if (stage === 'init_webgpu') {
-            flowStatusLabel.textContent = "WebGPU Shaders Initialized";
-          } else if (stage === 'alloc_wasm') {
-            statWasmMem.textContent = "3.30 GiB Allocated";
-            flowWasm.textContent = "3.30 GiB (Active)";
-            
-            if (source === 'idb') {
-              flowStatusLabel.textContent = `Streamed 3.54 GB instantly from IndexedDB SSD (3,000+ MB/s)!`;
-              statSpeed.textContent = "3000+ MB/s";
-              statStreamMb.textContent = "3543 / 3543 MB (100%)";
-              streamFill.style.width = "100%";
-              boxHost.className = "flow-box";
-              arrow1.className = "flow-arrow";
-              boxIdb.className = "flow-box box-green-cached";
-              flowIdb.textContent = "3.54 GB (SSD Cached)";
-              arrow2.className = "flow-arrow arrow-active";
-              boxWasm.className = "flow-box flow-active-blue";
-              arrow3.className = "flow-arrow arrow-active";
-              boxGpu.className = "flow-box flow-active-green";
-              streamBadge.textContent = "IndexedDB Stream";
-              streamBadge.className = "badge badge-green";
-            }
-          } else if (stage === 'streaming') {
-            const safeTotal = (total && total > 0) ? total : 3542960628;
-            const safeLoaded = (loaded && !isNaN(loaded) && loaded > 0) ? loaded : 0;
-            const mb = (safeLoaded / (1024 * 1024)).toFixed(0);
-            const totMb = (safeTotal / (1024 * 1024)).toFixed(0);
-            const pctVal = Math.max(0, Math.min(100, (safeLoaded / safeTotal) * 100));
-            const pct = isNaN(pctVal) ? "0.0" : pctVal.toFixed(1);
-            const safeSpeed = (typeof speed === 'number' && !isNaN(speed)) ? speed.toFixed(1) : '0.0';
-            
-            const loadedGb = (safeLoaded / 1e9).toFixed(2);
-            const totalGb = (safeTotal / 1e9).toFixed(2);
-
-            statStreamMb.textContent = `${mb} / ${totMb} MB (${pct}%)`;
-            statSpeed.textContent = `${safeSpeed} MB/s`;
-            streamFill.style.width = `${pct}%`;
-            streamBadge.textContent = "Streaming CDN";
-            streamBadge.className = "badge badge-blue";
-
-            flowStatusLabel.textContent = `Streaming HuggingFace CDN ➔ IndexedDB: ${pct}% (${safeSpeed} MB/s)`;
-            boxHost.className = "flow-box flow-active-blue";
-            arrow1.className = "flow-arrow arrow-active";
-            boxIdb.className = "flow-box flow-active-blue";
-            flowIdb.textContent = `${loadedGb} / ${totalGb} GB`;
-          } else if (stage === 'stream_complete') {
-            streamBadge.textContent = "Cached";
-            streamBadge.className = "badge badge-green";
-            weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
-            weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
-            weightsInput.disabled = true;
-            cacheBadgeNotice.style.display = "block";
-            
-            flowStatusLabel.textContent = "Weights Cached in IndexedDB SSD Storage!";
-            boxHost.className = "flow-box";
-            arrow1.className = "flow-arrow";
-            boxIdb.className = "flow-box box-green-cached";
-            flowIdb.textContent = "3.54 GB (SSD Cached)";
-          } else if (stage === 'ram_reclaimed') {
-            statReclaimed.textContent = "3.30 GiB Freed (dealloc_bytes)";
-            statReclaimed.style.color = "#7ee787";
-            statWasmMem.textContent = "0.02 GiB (Active)";
-          } else if (stage === 'folding') {
-            if (!isComplete) {
-              const pct = (fraction * 100).toFixed(0);
-              statStage.textContent = `[${pct}%] ${foldStage}`;
-              foldFill.style.width = `${pct}%`;
-              foldBadge.textContent = "Folding Active";
-              foldBadge.className = "badge badge-blue";
-            }
-          }
-        } else if (type === 'complete') {
-          isComplete = true;
-          currentPdbText = pdb;
-          foldFill.style.width = '100%';
-          statStage.textContent = `Finished in ${elapsed}s! (Total Execution Time)`;
-          statStage.style.color = "#7ee787";
-          foldBadge.textContent = "Complete";
-          foldBadge.className = "badge badge-green";
-          
-          const outEl = document.getElementById('output');
-          outEl.textContent = pdb;
-          downloadBtn.style.display = 'inline-block';
-          foldBtn.disabled = false;
-          outEl.scrollIntoView({ behavior: 'smooth' });
-        } else if (type === 'error') {
-          document.getElementById('output').textContent = `Error: ${message}`;
-          foldBtn.disabled = false;
-          foldBadge.textContent = "Error";
-          foldBadge.className = "badge badge-gray";
-        }
-      };
 
       const threads = 8;
       worker.postMessage({ fasta, weightsUrl, threads, recycles });
