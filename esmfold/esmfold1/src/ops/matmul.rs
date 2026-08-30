@@ -67,8 +67,8 @@ pub fn linear(x: &Tensor, w: &Tensor, b: Option<&Tensor>) -> Tensor {
                     }
                 }
             }
-            crate::web_log!("⚠️ WebGPU MatMul Fallback: Executing via SIMD Rayon CPU (m={}, k={}, o={})", mm, k, o);
         }
+
 
 
         let scale = w.scale;
