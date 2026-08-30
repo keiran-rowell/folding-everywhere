@@ -263,12 +263,16 @@
       statShader.style.color = "#f59e0b";
     }
 
+    let isComplete = false;
     const worker = new Worker('worker.js', { type: 'module' });
 
     worker.onmessage = (e) => {
       const { type, message, stage, source, bytesReceived, contentLength, fraction, mbps, threads, gpuActive, foldStage, pdb, elapsed } = e.data;
 
       if (type === 'telemetry') {
+        if (!isComplete) {
+          statStage.textContent = message;
+        }
         statStage.textContent = message;
 
         if (stage === 'thread_pool') {
@@ -352,6 +356,7 @@
           statWasmMem.textContent = "0.02 GB (Active)";
         }
       } else if (type === 'complete') {
+        isComplete = true;
         foldBadge.textContent = "Completed";
         foldBadge.className = "badge badge-green";
         statStage.textContent = `Finished in ${elapsed} seconds! (Total Execution Time)`;
@@ -390,6 +395,7 @@
     };
 
     foldBtn.onclick = () => {
+      isComplete = false;
       foldBtn.disabled = true;
       const fasta = document.getElementById('fasta').value.trim();
       const weightsUrl = document.getElementById('weights').value.trim();
