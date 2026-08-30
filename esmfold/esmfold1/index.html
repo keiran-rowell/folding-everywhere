@@ -266,13 +266,23 @@
         const db = await openDB();
         const tx = db.transaction('weights', 'readonly');
         const store = tx.objectStore('weights');
-        const req = store.getAllKeys();
-        req.onsuccess = () => {
-          if (req.result && req.result.length > 0) {
-            weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
-            weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
-            weightsInput.disabled = true;
-            cacheBadgeNotice.style.display = "block";
+        const req = store.getAll();
+        req.onsuccess = async () => {
+          const blobs = req.result || [];
+          for (const blob of blobs) {
+            if (blob && (blob.size || blob.byteLength) > 3000000000) {
+              try {
+                const slice = blob.slice ? blob.slice(8, 512) : new Blob([blob]).slice(8, 512);
+                const headerText = new TextDecoder().decode(await slice.arrayBuffer());
+                if (headerText.startsWith('{"') && headerText.includes('esm.encoder') && (headerText.includes('trunk.') || headerText.includes('structure_module'))) {
+                  weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
+                  weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
+                  weightsInput.disabled = true;
+                  cacheBadgeNotice.style.display = "block";
+                  break;
+                }
+              } catch (e) {}
+            }
           }
         };
       } catch (e) {}

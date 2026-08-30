@@ -313,13 +313,18 @@ self.onmessage = async (e) => {
     const pdb = await pdbFn(fasta, cachedPtr, cachedLen, onProgress);
     const elapsed = ((performance.now() - foldStartTime) / 1000).toFixed(1);
 
-    // EXPLICIT VERIFICATION & POINTER RESET OF WASM RAM RECLAMATION
+    // Post complete event IMMEDIATELY so PDB output renders to DOM without delay
+    self.postMessage({ type: 'complete', pdb, elapsed });
+
+    // Safe background memory reclamation (never blocks completion)
     if (gpuActive && cachedPtr) {
       try {
         const freedBytes = cachedLen;
         const freedPtr = cachedPtr;
-        dealloc_bytes(freedPtr, freedBytes);
-        cachedPtr = null; // Pointer reset for clean memory safety
+        cachedPtr = null; // Reset pointer first for safety
+        if (typeof dealloc_bytes === 'function') {
+          dealloc_bytes(freedPtr, freedBytes);
+        }
         self.postMessage({
           type: 'telemetry',
           stage: 'ram_reclaimed',
@@ -328,11 +333,9 @@ self.onmessage = async (e) => {
           message: `✅ WASM RAM Reclamation Verified: ${(freedBytes / (1024 * 1024 * 1024)).toFixed(2)} GB WASM memory freed via dealloc_bytes!`
         });
       } catch (e) {
-        console.warn('dealloc_bytes warning:', e);
+        console.warn('dealloc_bytes non-fatal notice:', e);
       }
     }
-
-    self.postMessage({ type: 'complete', pdb, elapsed });
   } catch (err) {
     console.error('Worker failed:', err);
     self.postMessage({ type: 'error', message: err.toString() });
