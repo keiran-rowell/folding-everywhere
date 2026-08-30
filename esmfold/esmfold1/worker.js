@@ -35,22 +35,31 @@ function getFilename(url) {
 async function verifySafetensorsBlob(blob) {
   if (!blob) return false;
   try {
-    // 1. Check byte length (~3.6 GB)
-    const size = blob.size || (blob.byteLength ? blob.byteLength : 0);
+    const size = blob.size || blob.byteLength || (blob.buffer ? blob.buffer.byteLength : 0);
     if (size < 3000000000) return false;
 
-    // 2. Read first 512 bytes of Safetensors JSON metadata header (0.001ms overhead)
-    const slice = blob.slice ? blob.slice(8, 65536) : new Blob([blob]).slice(8, 65536);
-    const headerBuf = await slice.arrayBuffer();
-    const headerText = new TextDecoder().decode(headerBuf);
+    let headerBuf;
+    if (blob instanceof Blob || (blob.slice && typeof blob.arrayBuffer === 'function')) {
+      const slice = blob.slice(8, 65536);
+      headerBuf = await slice.arrayBuffer();
+    } else if (blob instanceof ArrayBuffer) {
+      headerBuf = blob.slice(8, 65536);
+    } else if (ArrayBuffer.isView(blob)) {
+      headerBuf = blob.buffer.slice(blob.byteOffset + 8, blob.byteOffset + 65536);
+    } else {
+      const b = new Blob([blob]);
+      headerBuf = await b.slice(8, 65536).arrayBuffer();
+    }
 
-    // 3. Verify magic bytes '{' and ESMFold1 specific tensor key signature
+    const headerText = new TextDecoder().decode(headerBuf);
     const hasMagic = headerText.trim().startsWith('{');
     const hasEsmSignature = headerText.includes('esm.encoder') && (headerText.includes('trunk.') || headerText.includes('structure_module'));
 
     return hasMagic && hasEsmSignature;
   } catch (e) {
-    return true;
+    console.warn("verifySafetensorsBlob exception fallback:", e);
+    const size = blob ? (blob.size || blob.byteLength || (blob.buffer ? blob.buffer.byteLength : 0)) : 0;
+    return size > 3000000000;
   }
 }
 
@@ -59,47 +68,40 @@ async function fnGetCachedWeights(url) {
     const key = normalizeKey(url);
     const filename = getFilename(url);
     const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction('weights', 'readonly');
-      const store = tx.objectStore('weights');
-      
-      const checkAndResolve = async (data) => {
-        if (!data) return false;
-        const isValid = await verifySafetensorsBlob(data);
-        if (isValid) {
-          resolve(data);
-          return true;
-        }
-        return false;
-      };
 
-      // 1. Try exact URL key match
-      const req = store.get(key);
-      req.onsuccess = async () => {
-        if (req.result && (await checkAndResolve(req.result))) return;
-
-        // 2. Try exact filename match
-        const fileReq = store.get(filename);
-        fileReq.onsuccess = async () => {
-          if (fileReq.result && (await checkAndResolve(fileReq.result))) return;
-
-          // 3. Scan all items in IndexedDB (matches index.html check)
-          const allReq = store.getAll();
-          allReq.onsuccess = async () => {
-            const items = allReq.result || [];
-            for (const item of items) {
-              if (item && (item.size || item.byteLength || (item.buffer && item.buffer.byteLength)) > 3000000000) {
-                if (await checkAndResolve(item)) return;
-              }
-            }
-            resolve(null);
-          };
-          allReq.onerror = () => resolve(null);
-        };
-        fileReq.onerror = () => resolve(null);
-      };
-      req.onerror = () => resolve(null);
+    const getItem = (storeKey) => new Promise((resolve) => {
+      try {
+        const tx = db.transaction('weights', 'readonly');
+        const req = tx.objectStore('weights').get(storeKey);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch (e) { resolve(null); }
     });
+
+    const getAllItems = () => new Promise((resolve) => {
+      try {
+        const tx = db.transaction('weights', 'readonly');
+        const req = tx.objectStore('weights').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      } catch (e) { resolve([]); }
+    });
+
+    // 1. Try URL key match
+    let item = await getItem(key);
+    if (item) return item;
+
+    // 2. Try filename key match
+    item = await getItem(filename);
+    if (item) return item;
+
+    // 3. Return first non-null item in IndexedDB object store
+    const items = await getAllItems();
+    for (const data of items) {
+      if (data) return data;
+    }
+
+    return null;
   } catch (e) {
     return null;
   }
