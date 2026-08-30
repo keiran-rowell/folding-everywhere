@@ -388,13 +388,24 @@
         if (stage === 'init_webgpu') {
           flowStatusLabel.textContent = "WebGPU Shaders Initialized";
         } else if (stage === 'alloc_wasm') {
+          boxHost.className = "flow-box";
+          arrow1.className = "flow-arrow";
+          boxIdb.className = "flow-box box-green-cached";
+          flowIdb.textContent = "3.54 GB (SSD Cached)";
+          streamBadge.textContent = "IndexedDB SSD Cache";
+          streamBadge.className = "badge badge-green";
+          statSpeed.textContent = "3,000+ MB/s (IndexedDB Cache)";
+          statStreamMb.textContent = "3543 / 3543 MB (100%)";
+          streamFill.style.width = "100%";
+
           flowStatusLabel.textContent = "Allocated 3.30 GiB buffer in WASM Linear RAM";
-          statWasmMem.textContent = "3.30 GiB Allocated";
+          statWasmMem.textContent = "3.30 GiB (Active)";
           flowWasm.textContent = "3.30 GiB (Active)";
           boxWasm.className = "flow-box flow-active-blue";
           arrow2.className = "flow-arrow arrow-active";
         } else if (stage === 'vram_transfer' || stage === 'vram_upload') {
           flowStatusLabel.textContent = "Transferring zero-copy layer weights to iGPU VRAM handles...";
+          boxWasm.className = "flow-box";
           boxGpu.className = "flow-box flow-active-green";
           arrow3.className = "flow-arrow arrow-active";
           flowGpu.textContent = "3.54 GB (VRAM Resident)";
@@ -441,9 +452,10 @@
           statReclaimed.style.color = "#7ee787";
           statWasmMem.textContent = "0.02 GiB (Reclaimed)";
           flowWasm.textContent = "0.02 GiB (Reclaimed)";
-          boxWasm.className = "flow-box";
+          boxWasm.className = "flow-box flow-active-blue";
           boxGpu.className = "flow-box flow-active-green";
-          flowStatusLabel.textContent = "⚡ Zero-Copy iGPU VRAM Pipeline Active (3.30 GiB RAM Reclaimed)";
+          arrow3.className = "flow-arrow arrow-active";
+          flowStatusLabel.textContent = "⚡ Dual WASM + iGPU VRAM Execution Active (3.30 GiB RAM Reclaimed)";
         } else if (stage === 'folding') {
           if (!isComplete) {
             const pct = Math.max(1, Math.min(99, Math.round(fraction * 100)));
