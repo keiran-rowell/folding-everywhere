@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ESMFold1 3B FP8 Multithreaded WASM</title>
+  <title>ESMFold1 3B FP8 WebGPU & WASM Runner</title>
   <script src="https://cdn.jsdelivr.net/npm/coi-serviceworker@0.1.7/coi-serviceworker.min.js"></script>
   <style>
     body { font-family: monospace; max-width: 800px; margin: 40px auto; padding: 0 20px; }
@@ -11,16 +11,20 @@
     button { padding: 8px 16px; margin: 8px 0; cursor: pointer; }
     #status { color: #0066cc; font-weight: bold; }
     .row { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+    .badge { background: #e0f2fe; color: #0369a1; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; }
   </style>
 </head>
 <body>
-  <h2>ESMFold v1 3B FP8 — WASM Multithreaded Runner</h2>
+  <h2>ESMFold v1 3B FP8 — WebGPU & WASM Runner</h2>
+  <div class="row">
+    <span class="badge" id="gpuBadge">WebGPU Status: Checking...</span>
+  </div>
 
   <label for="fasta">Amino Acid Sequence:</label>
   <textarea id="fasta">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
 
   <div class="row">
-    <label for="threads">Worker Threads:</label>
+    <label for="threads">CPU Fallback Threads:</label>
     <input type="number" id="threads" value="8" min="1" max="64" style="width: 70px;">
     <span id="detectedThreads" style="color: #666; font-size: 0.9em;"></span>
   </div>
@@ -37,9 +41,18 @@
   <script type="module">
     const threadsInput = document.getElementById('threads');
     const detectedEl = document.getElementById('detectedThreads');
+    const gpuBadge = document.getElementById('gpuBadge');
     const detected = navigator.hardwareConcurrency || 4;
     threadsInput.value = detected;
     detectedEl.textContent = `(Detected ${detected} logical cores)`;
+
+    if (navigator.gpu) {
+      gpuBadge.textContent = "WebGPU: Supported on Browser";
+      gpuBadge.style.background = "#dcfce7";
+      gpuBadge.style.color = "#15803d";
+    } else {
+      gpuBadge.textContent = "WebGPU: Unsupported (using CPU SIMD WASM)";
+    }
 
     const worker = new Worker('worker.js', { type: 'module' });
     const statusEl = document.getElementById('status');

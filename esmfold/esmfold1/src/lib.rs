@@ -16,6 +16,7 @@ pub mod structure;
 pub mod tensor;
 pub mod tokenizer;
 pub mod trunk;
+pub mod webgpu;
 pub mod weights;
 
 pub use tensor::Tensor;
@@ -117,3 +118,19 @@ pub fn fold_esmfold1_from_ptr(
 
 #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
 pub use wasm_bindgen_rayon::init_thread_pool;
+
+#[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+#[wasm_bindgen]
+pub async fn init_webgpu_backend() -> bool {
+    let fut = webgpu::WebGpuContext::init();
+    match fut.await {
+        Some(_ctx) => {
+            web_log!("WebGPU backend initialized successfully!");
+            true
+        }
+        None => {
+            web_log!("WebGPU unavailable on device/browser. Using multi-threaded SIMD CPU fallback.");
+            false
+        }
+    }
+}

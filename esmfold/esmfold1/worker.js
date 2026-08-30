@@ -1,4 +1,4 @@
-import init, { alloc_bytes, fold_esmfold1_from_ptr, initThreadPool } from './pkg/esmfold1.js';
+import init, { alloc_bytes, fold_esmfold1_from_ptr, initThreadPool, init_webgpu_backend } from './pkg/esmfold1.js';
 
 const REPORT_INTERVAL = 200 * 1024 * 1024;
 let poolInitialized = false;
@@ -15,6 +15,16 @@ self.onmessage = async (e) => {
       await initThreadPool(numThreads);
       poolInitialized = true;
       self.postMessage({ type: 'status', message: `Initialized WASM Rayon thread pool (${numThreads} threads).` });
+    }
+
+    if (typeof init_webgpu_backend === 'function') {
+      self.postMessage({ type: 'status', message: 'Detecting WebGPU adapter...' });
+      const gpuAvailable = await init_webgpu_backend();
+      if (gpuAvailable) {
+        self.postMessage({ type: 'status', message: 'WebGPU backend initialized & compute pipeline ready!' });
+      } else {
+        self.postMessage({ type: 'status', message: 'WebGPU unavailable. Using multi-threaded SIMD CPU fallback.' });
+      }
     }
 
     self.postMessage({ type: 'status', message: `Streaming weights from ${weightsUrl}...` });
