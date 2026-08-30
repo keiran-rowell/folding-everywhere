@@ -457,6 +457,13 @@
           arrow3.className = "flow-arrow arrow-active";
           flowStatusLabel.textContent = "⚡ Dual WASM + iGPU VRAM Execution Active (3.30 GiB RAM Reclaimed)";
         } else if (stage === 'folding') {
+          boxHost.className = "flow-box";
+          arrow1.className = "flow-arrow";
+          boxIdb.className = "flow-box box-green-cached";
+          boxWasm.className = "flow-box flow-active-blue";
+          boxGpu.className = "flow-box flow-active-green";
+          arrow3.className = "flow-arrow arrow-active";
+
           if (!isComplete) {
             const pct = Math.max(1, Math.min(99, Math.round(fraction * 100)));
             statStage.textContent = `[${pct}%] ${foldStage}`;

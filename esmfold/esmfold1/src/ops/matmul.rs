@@ -8,6 +8,11 @@ pub fn linear(x: &Tensor, w: &Tensor, b: Option<&Tensor>) -> Tensor {
     let lead: usize = x.numel() / (m * k);
     let mm = lead * m;
     let o = w.shape[0];
+    let w_k = if w.ndim() >= 2 { w.shape[1] } else { w.numel() / o };
+    if w_k != k {
+        crate::web_error!("ops::linear dimension mismatch! x shape = {:?}, k = {}, w shape = {:?}, w_k = {}", x.shape, k, w.shape, w_k);
+        assert_eq!(w_k, k, "ops::linear inner dimension mismatch");
+    }
 
     let mut out = vec![0.0f32; mm * o];
     let xd = &x.data;
