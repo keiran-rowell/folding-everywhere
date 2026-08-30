@@ -170,7 +170,7 @@
       <h3>Local Hardware <span class="badge badge-blue" id="hwBadge">Detecting...</span></h3>
       <div class="stat-row"><span class="stat-label">CPU Threads:</span><span class="stat-val" id="statCores">🧵 8 Rayon Cores</span></div>
       <div class="stat-row"><span class="stat-label">WebGPU Target:</span><span class="stat-val" id="statGpu">Intel Iris Xe Graphics</span></div>
-      <div class="stat-row"><span class="stat-label">Active Engine:</span><span class="stat-val" id="statShader" style="color: #22c55e;">⚡ WebGPU WGSL Shaders</span></div>
+      <div class="stat-row"><span class="stat-label">Active Engine:</span><span class="stat-val" id="statShader">Detecting...</span></div>
     </div>
 
     <!-- Card 2: Memory & Streaming Telemetry -->
@@ -250,12 +250,14 @@
       hwBadge.className = "badge badge-green";
       flowGpu.textContent = "Intel Iris Xe UMA";
       statShader.textContent = "⚡ WebGPU WGSL Shaders";
+      statShader.style.color = "#22c55e";
     } else {
-      statGpu.textContent = "Disabled (CPU SIMD Active)";
+      statGpu.textContent = "Disabled (CPU Fallback)";
       hwBadge.textContent = "CPU Fallback";
       hwBadge.className = "badge badge-blue";
       flowGpu.textContent = "CPU SIMD Parallel";
-      statShader.textContent = "🧵 Rayon 4x SIMD CPU";
+      statShader.textContent = "No GPU - SIMD Rayon CPU Fallback Active";
+      statShader.style.color = "#f59e0b";
     }
 
     const worker = new Worker('worker.js', { type: 'module' });
@@ -271,10 +273,11 @@
         } else if (stage === 'gpu_status') {
           if (gpuActive) {
             statGpu.textContent = "Intel Iris Xe / Local GPU";
-            statShader.textContent = "⚡ WebGPU WGSL Shaders";
+            statShader.textContent = "⚡ WebGPU WGSL Shaders Active";
             statShader.style.color = "#22c55e";
           } else {
-            statShader.textContent = "🧵 Rayon 4x SIMD CPU";
+            statShader.textContent = "No GPU - SIMD Rayon CPU Fallback Active";
+            statShader.style.color = "#f59e0b";
           }
         } else if (stage === 'alloc_wasm') {
           const gb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
@@ -328,7 +331,7 @@
           foldBadge.textContent = "Folding...";
           foldBadge.className = "badge badge-blue";
 
-          flowStatusLabel.textContent = "⚡ Executing WebGPU WGSL Shader Compute Passes on iGPU...";
+          flowStatusLabel.textContent = gpuActive ? "⚡ Executing WebGPU WGSL Shader Compute Passes on iGPU..." : "⚠️ Executing Rayon SIMD Parallel CPU Fallback Fold...";
           boxHost.className = "flow-box";
           arrow1.className = "flow-arrow";
           boxIdb.className = "flow-box";
@@ -339,7 +342,7 @@
         } else if (stage === 'folding') {
           foldFill.style.width = `${(fraction * 100).toFixed(1)}%`;
           statStage.textContent = `[${(fraction * 100).toFixed(0)}%] ${foldStage}`;
-          flowStatusLabel.textContent = `⚡ WGSL GPU Compute Pass: ${(fraction * 100).toFixed(0)}%`;
+          flowStatusLabel.textContent = `Fold Progress: ${(fraction * 100).toFixed(0)}%`;
         } else if (stage === 'ram_reclaimed') {
           statReclaimed.textContent = "3.38 GB Freed (dealloc_bytes)";
           statReclaimed.style.color = "#22c55e";
