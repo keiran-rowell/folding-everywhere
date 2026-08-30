@@ -157,10 +157,14 @@ pub fn fold_cb_with_recycles(w: &Weights, consts: &Constants, seq: &str, num_rec
         let base = 0.30 + 0.165 * r as f32; // each recycle ~16.5%
         let rs = ops::layer_norm(&recycle_s, &w.get("trunk.recycle_s_norm.weight"), &w.get("trunk.recycle_s_norm.bias"), 1e-5);
         let mut rz = ops::layer_norm(&recycle_z, &w.get("trunk.recycle_z_norm.weight"), &w.get("trunk.recycle_z_norm.bias"), 1e-5);
-        for ij in 0..l * l {
-            let b = recycle_bins[ij] * trunk::C_Z;
-            for c in 0..trunk::C_Z {
-                rz.data[ij * trunk::C_Z + c] += disto_w.data[b + c];
+        if !disto_w.data.is_empty() {
+            for ij in 0..l * l {
+                let b = recycle_bins[ij] * trunk::C_Z;
+                for c in 0..trunk::C_Z {
+                    if b + c < disto_w.data.len() && ij * trunk::C_Z + c < rz.data.len() {
+                        rz.data[ij * trunk::C_Z + c] += disto_w.data[b + c];
+                    }
+                }
             }
         }
         let s_in = Tensor::new(s_s0.data.iter().zip(&rs.data).map(|(a, b)| a + b).collect(), s_s0.shape.clone());

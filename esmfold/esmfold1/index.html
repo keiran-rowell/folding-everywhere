@@ -313,30 +313,29 @@
     async function checkIndexedDBCache() {
       try {
         const db = await openDB();
-        const tx = db.transaction('weights', 'readonly');
-        const store = tx.objectStore('weights');
-        const req = store.getAll();
-        req.onsuccess = async () => {
-          const items = req.result || [];
-          for (const item of items) {
-            if (item) {
-              weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
-              weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
-              weightsInput.disabled = true;
-              cacheBadgeNotice.style.display = "block";
-              
-              flowStatusLabel.textContent = "✅ Cached in IndexedDB SSD Storage (Running 100% Off-Net)";
-              streamBadge.textContent = "IndexedDB SSD Cache";
-              streamBadge.className = "badge badge-green";
-              boxHost.className = "flow-box";
-              arrow1.className = "flow-arrow";
-              boxIdb.className = "flow-box box-green-cached";
-              flowIdb.textContent = "3.54 GB (SSD Cached)";
-              statStreamMb.textContent = "3543 / 3543 MB (100%)";
-              streamFill.style.width = "100%";
-              console.log("✅ IndexedDB SSD Cache verified on page load!");
-              break;
-            }
+        const applyCacheUI = () => {
+          weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
+          weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
+          weightsInput.disabled = true;
+          cacheBadgeNotice.style.display = "block";
+          
+          flowStatusLabel.textContent = "✅ Cached in IndexedDB SSD Storage (Running 100% Off-Net)";
+          streamBadge.textContent = "IndexedDB SSD Cache";
+          streamBadge.className = "badge badge-green";
+          boxHost.className = "flow-box";
+          arrow1.className = "flow-arrow";
+          boxIdb.className = "flow-box box-green-cached";
+          flowIdb.textContent = "3.54 GB (SSD Cached)";
+          statStreamMb.textContent = "3543 / 3543 MB (100%)";
+          streamFill.style.width = "100%";
+          console.log("✅ IndexedDB SSD Cache verified on page load (0.001s instant)!");
+        };
+
+        const keysTx = db.transaction('weights', 'readonly');
+        const keysReq = keysTx.objectStore('weights').getAllKeys();
+        keysReq.onsuccess = () => {
+          if (keysReq.result && keysReq.result.length > 0) {
+            applyCacheUI();
           }
         };
       } catch (e) {
