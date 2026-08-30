@@ -330,7 +330,7 @@ self.onmessage = async (e) => {
           stage: 'ram_reclaimed',
           reclaimed: true,
           freedMb: (freedBytes / (1024 * 1024)).toFixed(0),
-          message: `✅ WASM RAM Reclamation Verified: ${(freedBytes / (1024 * 1024 * 1024)).toFixed(2)} GB WASM memory freed via dealloc_bytes!`
+          message: `✅ WASM RAM Reclamation Verified: ${(freedBytes / (1024 * 1024 * 1024)).toFixed(2)} GiB WASM memory freed via dealloc_bytes!`
         });
       } catch (e) {
         console.warn('dealloc_bytes non-fatal notice:', e);
