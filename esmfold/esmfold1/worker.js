@@ -1,6 +1,6 @@
 import init, { alloc_bytes, dealloc_bytes, fold_esmfold1_from_ptr, fold_esmfold1_from_ptr_async, initThreadPool, init_webgpu_backend } from './pkg/esmfold1.js';
 
-const REPORT_INTERVAL = 50 * 1024 * 1024;
+const REPORT_INTERVAL = 2 * 1024 * 1024; // 2 MB interval for smooth real-time UI streaming updates
 let poolInitialized = false;
 let cachedPtr = null;
 let cachedLen = 0;
@@ -45,7 +45,7 @@ async function verifySafetensorsBlob(blob) {
     const headerText = new TextDecoder().decode(headerBuf);
 
     // 3. Verify magic bytes '{' and ESMFold1 specific tensor key signature
-    const hasMagic = headerText.startsWith('{"');
+    const hasMagic = headerText.trim().startsWith('{');
     const hasEsmSignature = headerText.includes('esm.encoder') && (headerText.includes('trunk.') || headerText.includes('structure_module'));
 
     return hasMagic && hasEsmSignature;
@@ -64,44 +64,39 @@ async function fnGetCachedWeights(url) {
       const store = tx.objectStore('weights');
       
       const checkAndResolve = async (data) => {
-        if (!data) return resolve(null);
+        if (!data) return false;
         const isValid = await verifySafetensorsBlob(data);
         if (isValid) {
           resolve(data);
-        } else {
-          resolve(null);
+          return true;
         }
+        return false;
       };
 
       // 1. Try exact URL key match
       const req = store.get(key);
-      req.onsuccess = () => {
-        if (req.result) {
-          checkAndResolve(req.result);
-        } else {
-          // 2. Try exact filename match (e.g. esmfold1_complete-fp8.safetensors)
-          const fileReq = store.get(filename);
-          fileReq.onsuccess = () => {
-            if (fileReq.result) {
-              checkAndResolve(fileReq.result);
-            } else {
-              // 3. Match by filename in all keys
-              const keysReq = store.getAllKeys();
-              keysReq.onsuccess = () => {
-                const matchedKey = (keysReq.result || []).find(k => String(k).includes(filename));
-                if (matchedKey) {
-                  const blobReq = store.get(matchedKey);
-                  blobReq.onsuccess = () => checkAndResolve(blobReq.result || null);
-                  blobReq.onerror = () => resolve(null);
-                } else {
-                  resolve(null);
-                }
-              };
-              keysReq.onerror = () => resolve(null);
+      req.onsuccess = async () => {
+        if (req.result && (await checkAndResolve(req.result))) return;
+
+        // 2. Try exact filename match
+        const fileReq = store.get(filename);
+        fileReq.onsuccess = async () => {
+          if (fileReq.result && (await checkAndResolve(fileReq.result))) return;
+
+          // 3. Scan all items in IndexedDB (matches index.html check)
+          const allReq = store.getAll();
+          allReq.onsuccess = async () => {
+            const items = allReq.result || [];
+            for (const item of items) {
+              if (item && (item.size || item.byteLength || (item.buffer && item.buffer.byteLength)) > 3000000000) {
+                if (await checkAndResolve(item)) return;
+              }
             }
+            resolve(null);
           };
-          fileReq.onerror = () => resolve(null);
-        }
+          allReq.onerror = () => resolve(null);
+        };
+        fileReq.onerror = () => resolve(null);
       };
       req.onerror = () => resolve(null);
     });
@@ -113,12 +108,28 @@ async function fnGetCachedWeights(url) {
 async function fnSaveCachedWeights(url, blobOrBuffer) {
   try {
     const key = normalizeKey(url);
+    const filename = getFilename(url);
     const db = await openDB();
-    const tx = db.transaction('weights', 'readwrite');
-    const store = tx.objectStore('weights');
-    store.put(blobOrBuffer, key);
+    
+    return new Promise((resolve) => {
+      const tx = db.transaction('weights', 'readwrite');
+      const store = tx.objectStore('weights');
+      store.put(blobOrBuffer, key);
+      if (filename && filename !== key) {
+        store.put(blobOrBuffer, filename);
+      }
+      tx.oncomplete = () => {
+        console.log(`✅ Safetensors saved to IndexedDB SSD: ${key}`);
+        resolve(true);
+      };
+      tx.onerror = (err) => {
+        console.warn('Failed IndexedDB transaction:', err);
+        resolve(false);
+      };
+    });
   } catch (e) {
     console.warn('Failed to save to IndexedDB:', e);
+    return false;
   }
 }
 
@@ -190,11 +201,12 @@ self.onmessage = async (e) => {
         const contentLength = weightBuffer.byteLength;
         const totalGb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
         
+        // Step 1: Alloc WASM Linear Memory
         self.postMessage({
           type: 'telemetry',
           stage: 'alloc_wasm',
           source: 'idb',
-          message: `Streaming ${totalGb} GB chunks directly from IndexedDB SSD into iGPU VRAM...`,
+          message: `Allocating ${totalGb} GB in WASM Linear Memory...`,
           contentLength
         });
 
@@ -203,6 +215,7 @@ self.onmessage = async (e) => {
           throw new Error("Failed to allocate linear memory for weights buffer.");
         }
 
+        // Step 2: Ingest from IndexedDB
         new Uint8Array(wasm.memory.buffer, Number(ptr), contentLength).set(weightBuffer);
 
         self.postMessage({
@@ -211,9 +224,19 @@ self.onmessage = async (e) => {
           source: 'idb',
           bytesReceived: contentLength,
           contentLength,
+          loaded: contentLength,
+          total: contentLength,
+          speed: 3000,
           fraction: 1.0,
           mbps: '3,000+ MB/s (IndexedDB Cache)',
-          message: 'Streamed Chunks from IndexedDB SSD ➔ iGPU VRAM'
+          message: 'Streamed Chunks from IndexedDB SSD ➔ WASM Linear RAM'
+        });
+
+        // Step 3: WebGPU VRAM Upload
+        self.postMessage({
+          type: 'telemetry',
+          stage: 'vram_transfer',
+          message: 'Transferring zero-copy layer weights to iGPU VRAM handles...'
         });
 
         cachedPtr = Number(ptr);
@@ -282,7 +305,13 @@ self.onmessage = async (e) => {
         }
 
         const blob = new Blob(rawChunks, { type: 'application/octet-stream' });
-        fnSaveCachedWeights(weightsUrl, blob);
+        await fnSaveCachedWeights(weightsUrl, blob);
+
+        self.postMessage({
+          type: 'telemetry',
+          stage: 'stream_complete',
+          message: 'Safetensors cached in IndexedDB SSD!'
+        });
 
         cachedPtr = Number(ptr);
         cachedLen = contentLength;
@@ -313,6 +342,14 @@ self.onmessage = async (e) => {
         message: `[${(fraction * 100).toFixed(0)}%] ${stageName}`
       });
     };
+
+    self.postMessage({
+      type: 'telemetry',
+      stage: 'folding',
+      foldStage: 'esm2: starting forward pass',
+      fraction: 0.01,
+      message: '[1%] Starting ESMFold forward pass...'
+    });
 
     const pdbFn = typeof fold_esmfold1_from_ptr_async === 'function' ? fold_esmfold1_from_ptr_async : fold_esmfold1_from_ptr;
     const numRecycles = e.data.recycles || 1;

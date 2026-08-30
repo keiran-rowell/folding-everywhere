@@ -117,6 +117,10 @@ pub fn fold(w: &Weights, consts: &Constants, seq: &str) -> FoldOutput {
 
 /// As `fold`, reporting progress via `prog(message, fraction 0..1)`.
 pub fn fold_cb(w: &Weights, consts: &Constants, seq: &str, prog: &mut dyn FnMut(&str, f32)) -> FoldOutput {
+    fold_cb_with_recycles(w, consts, seq, 1, prog)
+}
+
+pub fn fold_cb_with_recycles(w: &Weights, consts: &Constants, seq: &str, num_recycles: usize, prog: &mut dyn FnMut(&str, f32)) -> FoldOutput {
     let ids = tokenize(seq);
     let aatype = seq_to_aatype(seq);
     let l = seq.chars().count();
@@ -137,7 +141,8 @@ pub fn fold_cb(w: &Weights, consts: &Constants, seq: &str, prog: &mut dyn FnMut(
     let mut s_z = s_z0.clone();
     let mut structure: Vec<StructIter> = Vec::new();
 
-    for r in 0..NUM_RECYCLES {
+    let max_recycles = num_recycles.clamp(1, 4);
+    for r in 0..max_recycles {
         let base = 0.30 + 0.165 * r as f32; // each recycle ~16.5%
         let rs = ops::layer_norm(&recycle_s, &w.get("trunk.recycle_s_norm.weight"), &w.get("trunk.recycle_s_norm.bias"), 1e-5);
         let mut rz = ops::layer_norm(&recycle_z, &w.get("trunk.recycle_z_norm.weight"), &w.get("trunk.recycle_z_norm.bias"), 1e-5);
@@ -150,9 +155,9 @@ pub fn fold_cb(w: &Weights, consts: &Constants, seq: &str, prog: &mut dyn FnMut(
         let s_in = Tensor::new(s_s0.data.iter().zip(&rs.data).map(|(a, b)| a + b).collect(), s_s0.shape.clone());
         let z_in = Tensor::new(s_z0.data.iter().zip(&rz.data).map(|(a, b)| a + b).collect(), s_z0.shape.clone());
         let (ss, sz, _) = trunk::trunk_iter_cb(&s_in, &z_in, w, l, false, &mut |blk| {
-            prog(&format!("Folding trunk — recycle {}/{}: block {blk}/48", r + 1, NUM_RECYCLES), base + 0.15 * blk as f32 / 48.0);
+            prog(&format!("Folding trunk — recycle {}/{}: block {blk}/48", r + 1, max_recycles), base + (0.60 / max_recycles as f32) * blk as f32 / 48.0);
         });
-        prog(&format!("Structure module — recycle {}/{}", r + 1, NUM_RECYCLES), base + 0.15);
+        prog(&format!("Structure module — recycle {}/{}", r + 1, max_recycles), base + (0.60 / max_recycles as f32));
         let sm_single = ops::linear(&ss, &w.get("trunk.trunk2sm_s.weight"), Some(&w.get("trunk.trunk2sm_s.bias")));
         let sm_pair = ops::linear(&sz, &w.get("trunk.trunk2sm_z.weight"), Some(&w.get("trunk.trunk2sm_z.bias")));
         structure = structure_module(&sm_single, &sm_pair, &aatype, w, consts, l);

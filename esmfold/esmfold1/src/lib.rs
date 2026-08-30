@@ -70,6 +70,7 @@ pub fn fold_esmfold1_from_ptr(
     seq: &str,
     weight_ptr: *const u8,
     weight_len: usize,
+    num_recycles: usize,
     progress_fn: Option<js_sys::Function>,
 ) -> Result<String, JsValue> {
     console_error_panic_hook::set_once();
@@ -141,7 +142,8 @@ pub async fn fold_esmfold1_from_ptr_async(
     seq: &str,
     weight_ptr: *const u8,
     weight_len: usize,
+    num_recycles: usize,
     progress_fn: Option<js_sys::Function>,
 ) -> Result<String, JsValue> {
-    fold_esmfold1_from_ptr(seq, weight_ptr, weight_len, progress_fn)
+    fold_esmfold1_from_ptr(seq, weight_ptr, weight_len, num_recycles, progress_fn)
 }
