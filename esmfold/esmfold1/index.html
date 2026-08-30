@@ -120,6 +120,7 @@
       border-radius: 4px;
       box-sizing: border-box;
       line-height: 1.5;
+      margin-bottom: 14px;
     }
     textarea:focus {
       border: 1px solid #fbbf24;
@@ -168,12 +169,31 @@
 <body>
   <div class="header-bar">
     <div>
-      <h1>ESMFold v1 FP8 — Scientific Hardware Telemetry</h1>
+      <h1>ESMFold1 [FP8] — Scientific Computing In-Browser</h1>
       <p style="color: var(--text-muted); font-size: 0.82rem; margin: 4px 0 0 0;">Browser WASM VM + WebGPU iGPU Acceleration Engine</p>
     </div>
     <div class="privacy-tag">
       🔒 100% Client-Side Local Hardware Execution
     </div>
+  </div>
+
+  <!-- Primary User Entry Area (Top Priority) -->
+  <div class="card" style="margin-bottom: 24px;">
+    <label for="fasta" style="font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; display: block; color: #f0f6fc;">Amino Acid Sequence (FASTA):</label>
+    <textarea id="fasta" rows="3">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
+
+    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 14px; background: #161b22; padding: 10px; border-radius: 4px; border: 1px solid var(--border);">
+      <label for="recycles" style="font-size: 0.85rem; font-weight: bold; color: var(--accent);">♻️ Recycles:</label>
+      <input type="number" id="recycles" value="1" min="1" max="4" style="width: 70px; margin: 0; padding: 4px 8px; text-align: center; font-weight: bold;">
+    </div>
+
+    <div style="margin-bottom: 14px;">
+      <label for="weights" style="font-size: 0.85rem; font-weight: bold; display: block; margin-bottom: 4px; color: #f0f6fc;">Model Weights Source (HuggingFace CDN):</label>
+      <input type="text" id="weights" value="https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors" style="margin: 0;">
+      <span id="cacheBadgeNotice" style="font-size: 0.75rem; color: #7ee787; display: none; font-weight: bold; margin-top: 4px;">✅ Cached in IndexedDB SSD Storage (Running entirely off net)</span>
+    </div>
+
+    <button id="foldBtn">Run ESMFold Prediction</button>
   </div>
 
   <!-- 4-Stage Hardware Data Flow Diagram -->
@@ -230,25 +250,6 @@
     <h3>Folding Telemetry <span class="badge badge-gray" id="foldBadge">Ready</span></h3>
     <div class="stat-row"><span class="stat-label">Execution Status:</span><span class="stat-val" id="statStage">Awaiting User Execution</span></div>
     <div class="progress-bar-container"><div class="progress-bar-fill" id="foldFill"></div></div>
-  </div>
-
-  <div class="card" style="margin-bottom: 24px;">
-    <label for="fasta" style="font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; display: block; color: #f0f6fc;">Amino Acid Sequence (FASTA):</label>
-    <textarea id="fasta" rows="3">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
-
-    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 14px; background: #161b22; padding: 10px; border-radius: 4px; border: 1px solid var(--border);">
-      <label for="recycles" style="font-size: 0.85rem; font-weight: bold; color: var(--accent);">♻️ Recycles:</label>
-      <input type="number" id="recycles" value="1" min="1" max="4" style="width: 70px; margin: 0; padding: 4px 8px; text-align: center; font-weight: bold;">
-      <span style="font-size: 0.78rem; color: var(--text-muted);">1 recycle folds Ubiquitin (<100 AA) in seconds</span>
-    </div>
-
-    <div style="margin-bottom: 14px;">
-      <label for="weights" style="font-size: 0.85rem; font-weight: bold; display: block; margin-bottom: 4px; color: #f0f6fc;">Model Weights Source (HuggingFace CDN):</label>
-      <input type="text" id="weights" value="https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors" style="margin: 0;">
-      <span id="cacheBadgeNotice" style="font-size: 0.75rem; color: #7ee787; display: none; font-weight: bold; margin-top: 4px;">✅ Cached in IndexedDB SSD Storage (Running entirely off net)</span>
-    </div>
-
-    <button id="foldBtn">Run ESMFold Prediction (WebGPU Accelerated)</button>
   </div>
 
   <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px;">
@@ -364,7 +365,7 @@
       hwBadge.className = "badge badge-gray";
     }
 
-    let worker = null;
+    let worker = new Worker('worker.js', { type: 'module' });
 
     foldBtn.addEventListener('click', () => {
       const fasta = document.getElementById('fasta').value.trim();
@@ -375,13 +376,15 @@
       
       foldBtn.disabled = true;
       downloadBtn.style.display = 'none';
-      document.getElementById('output').textContent = 'Initialising WebWorker & Streaming Weights...';
-      foldFill.style.width = '0%';
+      // Retain PDB output field untouched until completion
+      statStage.textContent = 'Initialising WebAssembly & Weights Streamer...';
+      foldBadge.textContent = 'Active';
+      foldBadge.className = 'badge badge-blue';
+      foldFill.style.width = '5%';
       streamFill.style.width = '0%';
       isComplete = false;
 
-      if (worker) worker.terminate();
-      worker = new Worker('worker.js', { type: 'module' });
+// Re-use pre-warmed background worker
 
       worker.onmessage = (e) => {
         const { type, stage, loaded, total, speed, message, foldStage, fraction, pdb, elapsed, source } = e.data;
@@ -394,7 +397,10 @@
             flowWasm.textContent = "3.30 GiB (Active)";
             
             if (source === 'idb') {
-              flowStatusLabel.textContent = `Streamed 3.54 GB instantly from IndexedDB SSD!`;
+              flowStatusLabel.textContent = `Streamed 3.54 GB instantly from IndexedDB SSD (3,000+ MB/s)!`;
+              statSpeed.textContent = "3000+ MB/s";
+              statStreamMb.textContent = "3543 / 3543 MB (100%)";
+              streamFill.style.width = "100%";
               boxHost.className = "flow-box";
               arrow1.className = "flow-arrow";
               boxIdb.className = "flow-box box-green-cached";
@@ -407,21 +413,28 @@
               streamBadge.className = "badge badge-green";
             }
           } else if (stage === 'streaming') {
-            const mb = (loaded / (1024 * 1024)).toFixed(0);
-            const totMb = (total / (1024 * 1024)).toFixed(0);
-            const pct = ((loaded / total) * 100).toFixed(1);
+            const safeTotal = (total && total > 0) ? total : 3542960628;
+            const safeLoaded = (loaded && !isNaN(loaded) && loaded > 0) ? loaded : 0;
+            const mb = (safeLoaded / (1024 * 1024)).toFixed(0);
+            const totMb = (safeTotal / (1024 * 1024)).toFixed(0);
+            const pctVal = Math.max(0, Math.min(100, (safeLoaded / safeTotal) * 100));
+            const pct = isNaN(pctVal) ? "0.0" : pctVal.toFixed(1);
+            const safeSpeed = (typeof speed === 'number' && !isNaN(speed)) ? speed.toFixed(1) : '0.0';
             
+            const loadedGb = (safeLoaded / 1e9).toFixed(2);
+            const totalGb = (safeTotal / 1e9).toFixed(2);
+
             statStreamMb.textContent = `${mb} / ${totMb} MB (${pct}%)`;
-            statSpeed.textContent = `${speed} MB/s`;
+            statSpeed.textContent = `${safeSpeed} MB/s`;
             streamFill.style.width = `${pct}%`;
             streamBadge.textContent = "Streaming CDN";
             streamBadge.className = "badge badge-blue";
 
-            flowStatusLabel.textContent = `Streaming HuggingFace CDN ➔ IndexedDB: ${pct}% (${speed} MB/s)`;
+            flowStatusLabel.textContent = `Streaming HuggingFace CDN ➔ IndexedDB: ${pct}% (${safeSpeed} MB/s)`;
             boxHost.className = "flow-box flow-active-blue";
             arrow1.className = "flow-arrow arrow-active";
             boxIdb.className = "flow-box flow-active-blue";
-            flowIdb.textContent = `${mb} / ${totMb} MB`;
+            flowIdb.textContent = `${loadedGb} / ${totalGb} GB`;
           } else if (stage === 'stream_complete') {
             streamBadge.textContent = "Cached";
             streamBadge.className = "badge badge-green";

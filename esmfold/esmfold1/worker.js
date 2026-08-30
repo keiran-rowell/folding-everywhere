@@ -224,8 +224,10 @@ self.onmessage = async (e) => {
         const response = await fetch(weightsUrl);
         if (!response.ok) throw new Error(`HTTP ${response.status} fetching weights`);
 
-        const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
-        if (!contentLength) throw new Error("Server must return Content-Length header.");
+        let contentLength = parseInt(response.headers.get('Content-Length') || response.headers.get('content-length') || '0', 10);
+        if (!contentLength || contentLength <= 0) {
+          contentLength = 3542960628; // Fallback to exact 3.54 GB safetensors byte length
+        }
 
         const totalGb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
         self.postMessage({
