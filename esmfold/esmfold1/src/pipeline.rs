@@ -54,13 +54,22 @@ pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
     let h = ops::relu(&h);
     let mut s_s0 = ops::linear(&h, &w.get("esm_s_mlp.3.weight"), Some(&w.get("esm_s_mlp.3.bias")));
     // + embedding(aatype)
-    let emb = w.get("embedding.weight").to_f32(); // [23,1024]
+    let emb_tensor = w.get("embedding.weight");
+    let emb = emb_tensor.to_f32(); // [23,1024]
     let cs = s_s0.shape[1];
-    for li in 0..l {
-        let row = aatype[li] * cs;
-        for c in 0..cs {
-            s_s0.data[li * cs + c] += emb.data[row + c];
+    crate::web_log!("lm_to_trunk: embedding shape = {:?}, data len = {}, cs = {}", emb.shape, emb.data.len(), cs);
+    if !emb.data.is_empty() {
+        for li in 0..l {
+            let res_idx = aatype[li].min(22);
+            let row = res_idx * cs;
+            for c in 0..cs {
+                if row + c < emb.data.len() && li * cs + c < s_s0.data.len() {
+                    s_s0.data[li * cs + c] += emb.data[row + c];
+                }
+            }
         }
+    } else {
+        crate::web_error!("lm_to_trunk: embedding.weight data is empty!");
     }
     s_s0
 }
