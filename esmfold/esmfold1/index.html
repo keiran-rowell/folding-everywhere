@@ -109,6 +109,12 @@
       box-sizing: border-box;
       margin-bottom: 12px;
     }
+    input:disabled {
+      opacity: 0.6;
+      background: #1e293b;
+      color: #94a3b8;
+      cursor: not-allowed;
+    }
     button {
       background: linear-gradient(to right, #0284c7, #4f46e5);
       color: white;
@@ -168,7 +174,7 @@
     <!-- Card 1: System Telemetry -->
     <div class="card">
       <h3>Local Hardware <span class="badge badge-blue" id="hwBadge">Detecting...</span></h3>
-      <div class="stat-row"><span class="stat-label">CPU Threads:</span><span class="stat-val" id="statCores">🧵 8 Rayon Cores</span></div>
+      <div class="stat-row"><span class="stat-label">Available CPU Cores:</span><span class="stat-val" id="statCores">💻 8 Cores</span></div>
       <div class="stat-row"><span class="stat-label">WebGPU Target:</span><span class="stat-val" id="statGpu">Intel Iris Xe Graphics</span></div>
       <div class="stat-row"><span class="stat-label">Active Engine:</span><span class="stat-val" id="statShader">Detecting...</span></div>
     </div>
@@ -195,11 +201,10 @@
     <label for="fasta" style="font-weight: bold; font-size: 0.9rem; margin-bottom: 6px; display: block;">Amino Acid Sequence (FASTA):</label>
     <textarea id="fasta">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
 
-    <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
-      <label for="threads" style="font-size: 0.9rem;">🧵 Worker Threads:</label>
-      <input type="number" id="threads" value="8" min="1" max="64" style="width: 80px; margin: 0;">
-      <label for="weights" style="font-size: 0.9rem; margin-left: auto;">Weights Path:</label>
-      <input type="text" id="weights" value="./weights/esmfold_v1_complete-fp8.safetensors" style="width: 55%; margin: 0;">
+    <div style="margin-bottom: 12px;">
+      <label for="weights" style="font-size: 0.9rem; font-weight: bold; display: block; margin-bottom: 4px;">Model Weights Source (HuggingFace CDN):</label>
+      <input type="text" id="weights" value="https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors" style="margin: 0;">
+      <span id="cacheBadgeNotice" style="font-size: 0.78rem; color: #22c55e; display: none; font-weight: bold; margin-top: 4px;">✅ Cached in IndexedDB SSD Storage (Running entirely off net)</span>
     </div>
 
     <button id="foldBtn">⚡ Run ESMFold Prediction (WebGPU Accelerated)</button>
@@ -212,7 +217,8 @@
   <pre id="output" style="margin-top: 10px;">PDB text will appear here...</pre>
 
   <script type="module">
-    const threadsInput = document.getElementById('threads');
+    const weightsInput = document.getElementById('weights');
+    const cacheBadgeNotice = document.getElementById('cacheBadgeNotice');
     const statCores = document.getElementById('statCores');
     const statGpu = document.getElementById('statGpu');
     const statShader = document.getElementById('statShader');
@@ -244,15 +250,41 @@
     const foldBtn = document.getElementById('foldBtn');
 
     const detectedCores = navigator.hardwareConcurrency || 4;
-    threadsInput.value = detectedCores;
-    statCores.textContent = `🧵 ${detectedCores} Rayon Threads`;
+    statCores.textContent = `💻 ${detectedCores} Cores`;
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('ESMFoldWeightsDB', 1);
+        request.onupgradeneeded = () => request.result.createObjectStore('weights');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function checkIndexedDBCache() {
+      try {
+        const db = await openDB();
+        const tx = db.transaction('weights', 'readonly');
+        const store = tx.objectStore('weights');
+        const req = store.getAllKeys();
+        req.onsuccess = () => {
+          if (req.result && req.result.length > 0) {
+            weightsInput.value = "";
+            weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
+            weightsInput.disabled = true;
+            cacheBadgeNotice.style.display = "block";
+          }
+        };
+      } catch (e) {}
+    }
+    checkIndexedDBCache();
 
     if (navigator.gpu) {
       statGpu.textContent = "WebGPU (DirectX12/Vulkan)";
       hwBadge.textContent = "WebGPU Active";
       hwBadge.className = "badge badge-green";
       flowGpu.textContent = "Intel Iris Xe UMA";
-      statShader.textContent = "⚡ WebGPU WGSL Shaders";
+      statShader.textContent = "⚡ WebGPU WGSL Shaders Active";
       statShader.style.color = "#22c55e";
     } else {
       statGpu.textContent = "Disabled (CPU Fallback)";
@@ -273,10 +305,9 @@
         if (!isComplete) {
           statStage.textContent = message;
         }
-        statStage.textContent = message;
 
         if (stage === 'thread_pool') {
-          statCores.textContent = `🧵 ${threads} Local Rayon Cores`;
+          statCores.textContent = `💻 ${threads} Rayon Cores`;
         } else if (stage === 'gpu_status') {
           if (gpuActive) {
             statGpu.textContent = "Intel Iris Xe / Local GPU";
@@ -398,8 +429,8 @@
       isComplete = false;
       foldBtn.disabled = true;
       const fasta = document.getElementById('fasta').value.trim();
-      const weightsUrl = document.getElementById('weights').value.trim();
-      const threads = parseInt(threadsInput.value, 10) || detectedCores;
+      const weightsUrl = weightsInput.value.trim() || 'https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors';
+      const threads = detectedCores;
       worker.postMessage({ fasta, weightsUrl, threads });
     };
   </script>
