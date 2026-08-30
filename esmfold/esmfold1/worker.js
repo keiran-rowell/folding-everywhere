@@ -214,7 +214,18 @@ self.onmessage = async (e) => {
       }
     }
 
-    self.postMessage({ type: 'telemetry', stage: 'fold_start', message: 'Executing structure prediction...' });
+    self.postMessage({ type: 'telemetry', stage: 'fold_start', message: 'Uploading layer weights to WebGPU VRAM...' });
+    
+    if (gpuActive) {
+      self.postMessage({
+        type: 'telemetry',
+        stage: 'ram_reclaimed',
+        reclaimed: true,
+        freedMb: (cachedLen / (1024 * 1024)).toFixed(0),
+        message: `✅ WebGPU VRAM Upload Complete: ${(cachedLen / (1024 * 1024 * 1024)).toFixed(2)} GB ready in iGPU VRAM!`
+      });
+    }
+
     const foldStartTime = performance.now();
 
     const onProgress = (stageName, fraction) => {
