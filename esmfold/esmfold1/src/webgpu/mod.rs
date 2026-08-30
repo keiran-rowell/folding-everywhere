@@ -1,8 +1,15 @@
-//! WebGPU Compute Engine for ESMFold1 FP8 operations
+//! WebGPU Compute Engine for ESMFold1 FP8 operations with 100% GPU-Resident Tensor Handoff
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
+
+/// GPU-Resident Tensor representation residing 100% inside GPU VRAM
+#[derive(Clone)]
+pub struct GpuTensor {
+    pub buffer: Arc<wgpu::Buffer>,
+    pub shape: Vec<usize>,
+}
 
 /// Uniforms buffer structure matching WGSL shader
 #[repr(C)]
@@ -21,7 +28,7 @@ pub struct WebGpuContext {
     pub queue: wgpu::Queue,
     pub pipeline: wgpu::ComputePipeline,
     pub bind_group_layout: wgpu::BindGroupLayout,
-    pub weight_buffer_cache: Mutex<HashMap<usize, wgpu::Buffer>>,
+    pub weight_buffer_cache: Mutex<HashMap<usize, Arc<wgpu::Buffer>>>,
 }
 
 pub struct SendSyncContext(pub Arc<WebGpuContext>);
@@ -151,18 +158,56 @@ impl WebGpuContext {
         Some(ctx)
     }
 
-    /// Dispatch FP8 Linear MatMul on WebGPU compute pipeline
-    pub async fn dispatch_matmul_fp8(
+    /// Upload & Cache Weight Matrix in GPU Memory
+    pub fn get_or_create_weight_buffer(&self, fp8_weights: &[u8]) -> Arc<wgpu::Buffer> {
+        let weight_ptr_addr = fp8_weights.as_ptr() as usize;
+        if let Ok(mut cache) = self.weight_buffer_cache.lock() {
+            if let Some(buf) = cache.get(&weight_ptr_addr) {
+                return buf.clone();
+            }
+            let u32_weights: &[u32] = bytemuck::cast_slice(fp8_weights);
+            let buf = Arc::new(self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Matmul Weights Buffer"),
+                contents: bytemuck::cast_slice(u32_weights),
+                usage: wgpu::BufferUsages::STORAGE,
+            }));
+            cache.insert(weight_ptr_addr, buf.clone());
+            buf
+        } else {
+            let u32_weights: &[u32] = bytemuck::cast_slice(fp8_weights);
+            Arc::new(self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Matmul Weights Buffer"),
+                contents: bytemuck::cast_slice(u32_weights),
+                usage: wgpu::BufferUsages::STORAGE,
+            }))
+        }
+    }
+
+    /// Upload CPU slice to GPU-resident buffer (0 CPU-GPU copies afterwards)
+    pub fn upload_cpu_to_gpu(&self, data: &[f32], shape: Vec<usize>) -> GpuTensor {
+        let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("CPU-to-GPU Activation Buffer"),
+            contents: bytemuck::cast_slice(data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        });
+        GpuTensor {
+            buffer: Arc::new(buffer),
+            shape,
+        }
+    }
+
+    /// GPU-to-GPU Handoff FP8 MatMul Dispatch (0 CPU readback round-trips!)
+    pub fn dispatch_matmul_gpu_to_gpu(
         &self,
-        input: &[f32],
+        input: &GpuTensor,
         fp8_weights: &[u8],
         scale: f32,
         bias: Option<&[f32]>,
         batch_size: usize,
         in_features: usize,
         out_features: usize,
-        output: &mut [f32],
-    ) -> Result<(), String> {
+        out_shape: Vec<usize>,
+    ) -> GpuTensor {
         let has_bias = if bias.is_some() { 1u32 } else { 0u32 };
 
         let uniforms = MatmulUniforms {
@@ -180,22 +225,7 @@ impl WebGpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let input_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Matmul Input Buffer"),
-            contents: bytemuck::cast_slice(input),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let weight_ptr_addr = fp8_weights.as_ptr() as usize;
-        let mut cache = self.weight_buffer_cache.lock().map_err(|e| e.to_string())?;
-        let weight_buffer = cache.entry(weight_ptr_addr).or_insert_with(|| {
-            let u32_weights: &[u32] = bytemuck::cast_slice(fp8_weights);
-            self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Matmul Weights Buffer"),
-                contents: bytemuck::cast_slice(u32_weights),
-                usage: wgpu::BufferUsages::STORAGE,
-            })
-        });
+        let weight_buffer = self.get_or_create_weight_buffer(fp8_weights);
 
         let dummy_bias = [0.0f32];
         let bias_slice = bias.unwrap_or(&dummy_bias);
@@ -207,16 +237,9 @@ impl WebGpuContext {
 
         let output_buffer_size = (batch_size * out_features * std::mem::size_of::<f32>()) as u64;
         let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Matmul Output Buffer"),
+            label: Some("Matmul Output GPU Buffer"),
             size: output_buffer_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Matmul Staging Buffer"),
-            size: output_buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -230,7 +253,7 @@ impl WebGpuContext {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: input_buffer.as_entire_binding(),
+                    resource: input.buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -264,7 +287,28 @@ impl WebGpuContext {
             pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
-        encoder.copy_buffer_to_buffer(&output_buffer, 0, &staging_buffer, 0, output_buffer_size);
+        self.queue.submit(Some(encoder.finish()));
+
+        GpuTensor {
+            buffer: Arc::new(output_buffer),
+            shape: out_shape,
+        }
+    }
+
+    /// Single Readback from GPU to CPU at the end of prediction
+    pub async fn readback_gpu_to_cpu(&self, tensor: &GpuTensor) -> Result<Vec<f32>, String> {
+        let size = (tensor.shape.iter().product::<usize>() * std::mem::size_of::<f32>()) as u64;
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Final Readback Staging Buffer"),
+            size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Readback Encoder"),
+        });
+        encoder.copy_buffer_to_buffer(&tensor.buffer, 0, &staging_buffer, 0, size);
         self.queue.submit(Some(encoder.finish()));
 
         let buffer_slice = staging_buffer.slice(..);
@@ -274,18 +318,17 @@ impl WebGpuContext {
             let _ = sender.send(result);
         });
 
-        self.device.poll(wgpu::Maintain::Wait);
+        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL)).await.ok();
 
         match receiver.receive().await {
             Some(Ok(())) => {
                 let data = buffer_slice.get_mapped_range();
-                let result_slice: &[f32] = bytemuck::cast_slice(&data);
-                output.copy_from_slice(result_slice);
+                let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
                 drop(data);
                 staging_buffer.unmap();
-                Ok(())
+                Ok(result)
             }
-            _ => Err("Failed to map WebGPU staging buffer".to_string()),
+            _ => Err("Failed to readback GPU tensor to CPU".to_string()),
         }
     }
 }

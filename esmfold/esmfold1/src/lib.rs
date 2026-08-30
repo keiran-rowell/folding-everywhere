@@ -134,3 +134,14 @@ pub async fn init_webgpu_backend() -> bool {
         }
     }
 }
+
+#[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+#[wasm_bindgen]
+pub async fn fold_esmfold1_from_ptr_async(
+    seq: &str,
+    weight_ptr: *const u8,
+    weight_len: usize,
+    progress_fn: Option<js_sys::Function>,
+) -> Result<String, JsValue> {
+    fold_esmfold1_from_ptr(seq, weight_ptr, weight_len, progress_fn)
+}
