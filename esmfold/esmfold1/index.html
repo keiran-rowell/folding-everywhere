@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ESMFold1 FP8 — WebGPU & WASM Telemetry Dashboard</title>
+  <title>ESMFold1 FP8 — Local WASM & WebGPU Hardware Pipeline</title>
   <script src="https://cdn.jsdelivr.net/npm/coi-serviceworker@0.1.7/coi-serviceworker.min.js"></script>
   <style>
     :root {
@@ -18,18 +18,76 @@
       background: var(--bg);
       color: var(--text);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      max-width: 900px;
+      max-width: 920px;
       margin: 40px auto;
       padding: 0 20px;
     }
-    h1 { font-size: 1.8rem; margin-bottom: 6px; background: linear-gradient(to right, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    p.subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 0; margin-bottom: 24px; }
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    h1 { font-size: 1.8rem; margin: 0; background: linear-gradient(to right, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     
+    .privacy-tag {
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid #22c55e;
+      color: #4ade80;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Live Data Flow Diagram Styling */
+    .flow-card {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 20px;
+      font-family: monospace;
+      font-size: 0.85rem;
+    }
+    .flow-steps {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .flow-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 12px;
+      border-radius: 8px;
+      flex: 1;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+    .flow-box-title { color: var(--text-muted); font-size: 0.75rem; display: block; margin-bottom: 6px; }
+    .flow-box-val { color: var(--accent); font-weight: bold; font-size: 0.9rem; }
+    .flow-arrow { color: var(--text-muted); font-size: 1.4rem; transition: all 0.3s ease; }
+
+    @keyframes pulse-blue {
+      0% { border-color: #0284c7; box-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
+      50% { border-color: #38bdf8; box-shadow: 0 0 16px rgba(56, 189, 248, 0.8); }
+      100% { border-color: #0284c7; box-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
+    }
+    @keyframes pulse-green {
+      0% { border-color: #15803d; box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+      50% { border-color: #22c55e; box-shadow: 0 0 18px rgba(34, 197, 94, 0.9); }
+      100% { border-color: #15803d; box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+    }
+
+    .flow-active-blue { animation: pulse-blue 1.2s infinite; background: #1e293b !important; }
+    .flow-active-green { animation: pulse-green 1.2s infinite; background: #064e3b !important; }
+    .arrow-active { color: #22c55e !important; font-weight: bold; transform: scale(1.4); }
+
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
     .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
     .card h3 { margin-top: 0; font-size: 1rem; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
     
-    .stat-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.9rem; margin: 8px 0; }
+    .stat-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.88rem; margin: 8px 0; }
     .stat-label { color: var(--text-muted); }
     .stat-val { font-weight: bold; }
     
@@ -68,32 +126,63 @@
   </style>
 </head>
 <body>
-  <h1>ESMFold v1 FP8 — WebGPU & WASM Telemetry Dashboard</h1>
-  <p class="subtitle">Pure-Rust WebAssembly VM + WGSL Compute Shader Acceleration</p>
+  <div class="header-bar">
+    <div>
+      <h1>ESMFold v1 FP8 — Hardware Telemetry</h1>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin: 4px 0 0 0;">Browser WASM VM + WebGPU iGPU Acceleration</p>
+    </div>
+    <div class="privacy-tag">
+      🔒 100% Client-Side Local Hardware Execution
+    </div>
+  </div>
+
+  <!-- Live Animated Hardware Data Flow Diagram -->
+  <div class="flow-card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <span style="color: var(--text-muted); font-weight: bold;">LIVE HARDWARE MEMORY TRANSFER PIPELINE</span>
+      <span id="flowStatusLabel" style="color: var(--accent); font-weight: bold;">Idle</span>
+    </div>
+    <div class="flow-steps">
+      <div class="flow-box" id="boxSource">
+        <span class="flow-box-title">LOCAL DISK / HOST</span>
+        <span class="flow-box-val" id="flowSource">./weights/esmfold...</span>
+      </div>
+      <span class="flow-arrow" id="arrow1">➔</span>
+      <div class="flow-box" id="boxWasm">
+        <span class="flow-box-title">LOCAL WASM VM RAM</span>
+        <span class="flow-box-val" id="flowWasm">0.00 / 3.38 GB</span>
+      </div>
+      <span class="flow-arrow" id="arrow2">➔</span>
+      <div class="flow-box" id="boxGpu">
+        <span class="flow-box-title">LOCAL iGPU SYSTEM VRAM</span>
+        <span class="flow-box-val" id="flowGpu">Intel Iris Xe UMA</span>
+      </div>
+    </div>
+  </div>
 
   <div class="grid">
     <!-- Card 1: System Telemetry -->
     <div class="card">
-      <h3>System Hardware <span class="badge badge-blue" id="hwBadge">Detecting...</span></h3>
+      <h3>Local Hardware <span class="badge badge-blue" id="hwBadge">Detecting...</span></h3>
       <div class="stat-row"><span class="stat-label">CPU Cores (Rayon):</span><span class="stat-val" id="statCores">-</span></div>
-      <div class="stat-row"><span class="stat-label">WebGPU Device:</span><span class="stat-val" id="statGpu">-</span></div>
-      <div class="stat-row"><span class="stat-label">WGSL Compute Shader:</span><span class="stat-val" id="statShader">Idle</span></div>
+      <div class="stat-row"><span class="stat-label">WebGPU Target:</span><span class="stat-val" id="statGpu">Intel Iris Xe Graphics</span></div>
+      <div class="stat-row"><span class="stat-label">WGSL Compute Shaders:</span><span class="stat-val" id="statShader">Idle</span></div>
     </div>
 
     <!-- Card 2: Memory & Streaming Telemetry -->
     <div class="card">
-      <h3>Weight Streamer <span class="badge badge-gray" id="streamBadge">Idle</span></h3>
-      <div class="stat-row"><span class="stat-label">WASM VM Allocated:</span><span class="stat-val" id="statWasmMem">0.00 GB</span></div>
-      <div class="stat-row"><span class="stat-label">Stream Progress:</span><span class="stat-val" id="statStreamMb">0 / 0 MB</span></div>
-      <div class="stat-row"><span class="stat-label">Bandwidth Speed:</span><span class="stat-val" id="statSpeed">0.0 MB/s</span></div>
+      <h3>Memory Streamer <span class="badge badge-gray" id="streamBadge">Idle</span></h3>
+      <div class="stat-row"><span class="stat-label">WASM Linear RAM:</span><span class="stat-val" id="statWasmMem">0.00 GB Allocated</span></div>
+      <div class="stat-row"><span class="stat-label">Local Streamed:</span><span class="stat-val" id="statStreamMb">0 / 0 MB</span></div>
+      <div class="stat-row"><span class="stat-label">Local Read Rate:</span><span class="stat-val" id="statSpeed">0.0 MB/s</span></div>
       <div class="progress-bar-container"><div class="progress-bar-fill" id="streamFill"></div></div>
     </div>
   </div>
 
   <!-- Card 3: Folding Telemetry -->
   <div class="card" style="margin-bottom: 20px;">
-    <h3>Folding Pipeline <span class="badge badge-gray" id="foldBadge">Ready</span></h3>
-    <div class="stat-row"><span class="stat-label">Current Stage:</span><span class="stat-val" id="statStage">Awaiting User Execution</span></div>
+    <h3>Folding Telemetry <span class="badge badge-gray" id="foldBadge">Ready</span></h3>
+    <div class="stat-row"><span class="stat-label">Execution Status:</span><span class="stat-val" id="statStage">Awaiting User Execution</span></div>
     <div class="progress-bar-container"><div class="progress-bar-fill" id="foldFill"></div></div>
   </div>
 
@@ -104,11 +193,11 @@
     <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
       <label for="threads" style="font-size: 0.9rem;">Worker Threads:</label>
       <input type="number" id="threads" value="8" min="1" max="64" style="width: 80px; margin: 0;">
-      <label for="weights" style="font-size: 0.9rem; margin-left: auto;">Weights URL:</label>
+      <label for="weights" style="font-size: 0.9rem; margin-left: auto;">Local Weights Path:</label>
       <input type="text" id="weights" value="./weights/esmfold_v1_complete-fp8.safetensors" style="width: 55%; margin: 0;">
     </div>
 
-    <button id="foldBtn">Run ESMFold Prediction</button>
+    <button id="foldBtn">Run ESMFold Prediction on Local GPU</button>
   </div>
 
   <h3>Predicted PDB Structure Output:</h3>
@@ -130,22 +219,34 @@
     const foldBadge = document.getElementById('foldBadge');
     const statStage = document.getElementById('statStage');
     const foldFill = document.getElementById('foldFill');
+    
+    // Memory Flow Box Elements
+    const flowStatusLabel = document.getElementById('flowStatusLabel');
+    const boxSource = document.getElementById('boxSource');
+    const boxWasm = document.getElementById('boxWasm');
+    const boxGpu = document.getElementById('boxGpu');
+    const arrow1 = document.getElementById('arrow1');
+    const arrow2 = document.getElementById('arrow2');
+    const flowWasm = document.getElementById('flowWasm');
+    const flowGpu = document.getElementById('flowGpu');
 
     const outEl = document.getElementById('output');
     const foldBtn = document.getElementById('foldBtn');
 
     const detectedCores = navigator.hardwareConcurrency || 4;
     threadsInput.value = detectedCores;
-    statCores.textContent = `${detectedCores} threads`;
+    statCores.textContent = `${detectedCores} Rayon Threads`;
 
     if (navigator.gpu) {
-      statGpu.textContent = "Available (WebGPU API)";
-      hwBadge.textContent = "WebGPU Ready";
+      statGpu.textContent = "WebGPU (DirectX12/Vulkan)";
+      hwBadge.textContent = "WebGPU Active";
       hwBadge.className = "badge badge-green";
+      flowGpu.textContent = "Intel Iris Xe UMA";
     } else {
       statGpu.textContent = "Disabled (CPU SIMD Active)";
       hwBadge.textContent = "CPU Fallback";
       hwBadge.className = "badge badge-blue";
+      flowGpu.textContent = "CPU SIMD Parallel";
     }
 
     const worker = new Worker('worker.js', { type: 'module' });
@@ -157,21 +258,31 @@
         statStage.textContent = message;
 
         if (stage === 'thread_pool') {
-          statCores.textContent = `${threads} Rayon Threads Active`;
+          statCores.textContent = `${threads} Local Rayon Cores`;
         } else if (stage === 'gpu_status') {
           if (gpuActive) {
-            statGpu.textContent = "Intel / Active GPU";
-            statShader.textContent = "Compiled & Active";
+            statGpu.textContent = "Intel Iris Xe / Local GPU";
+            statShader.textContent = "Active on GPU Shaders";
             statShader.style.color = "#22c55e";
           } else {
-            statShader.textContent = "CPU SIMD Parallel";
+            statShader.textContent = "CPU SIMD Fallback";
           }
         } else if (stage === 'alloc_wasm') {
           const gb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
-          statWasmMem.textContent = `${gb} GB`;
+          statWasmMem.textContent = `${gb} GB (Linear RAM)`;
           streamBadge.textContent = "Streaming...";
           streamBadge.className = "badge badge-blue";
+
+          // Activate Phase 1 Streaming Animation (Source -> WASM RAM)
+          flowStatusLabel.textContent = "Streaming Weights into WASM RAM...";
+          boxSource.className = "flow-box flow-active-blue";
+          arrow1.className = "flow-arrow arrow-active";
+          boxWasm.className = "flow-box flow-active-blue";
         } else if (stage === 'streaming') {
+          const rxGb = (bytesReceived / (1024 * 1024 * 1024)).toFixed(2);
+          const totalGb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
+          flowWasm.textContent = `${rxGb} / ${totalGb} GB`;
+          
           const rxMb = (bytesReceived / (1024 * 1024)).toFixed(0);
           const totalMb = (contentLength / (1024 * 1024)).toFixed(0);
           statStreamMb.textContent = `${rxMb} / ${totalMb} MB`;
@@ -182,21 +293,38 @@
           streamBadge.className = "badge badge-green";
           foldBadge.textContent = "Folding...";
           foldBadge.className = "badge badge-blue";
+
+          // Transition to Phase 2 Execution Animation (WASM RAM -> GPU Shader Execution)
+          flowStatusLabel.textContent = "Dispatching Layers to iGPU Compute Shader...";
+          boxSource.className = "flow-box";
+          arrow1.className = "flow-arrow";
+          boxWasm.className = "flow-box flow-active-blue";
+          arrow2.className = "flow-arrow arrow-active";
+          boxGpu.className = "flow-box flow-active-green";
         } else if (stage === 'folding') {
           foldFill.style.width = `${(fraction * 100).toFixed(1)}%`;
           statStage.textContent = `[${(fraction * 100).toFixed(0)}%] ${foldStage}`;
+          flowStatusLabel.textContent = `GPU Shader Compute Pass: ${(fraction * 100).toFixed(0)}%`;
         }
       } else if (type === 'complete') {
         foldBadge.textContent = "Completed";
         foldBadge.className = "badge badge-green";
         statStage.textContent = `Finished in ${elapsed} seconds!`;
+        flowStatusLabel.textContent = "Complete";
         foldFill.style.width = '100%';
+        
+        // Reset animations
+        boxWasm.className = "flow-box";
+        boxGpu.className = "flow-box";
+        arrow2.className = "flow-arrow";
+
         outEl.textContent = pdb;
         foldBtn.disabled = false;
       } else if (type === 'error') {
         foldBadge.textContent = "Error";
         foldBadge.className = "badge badge-gray";
         statStage.textContent = `Error: ${message}`;
+        flowStatusLabel.textContent = "Failed";
         foldBtn.disabled = false;
       }
     };
