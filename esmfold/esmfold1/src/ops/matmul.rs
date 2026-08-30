@@ -43,6 +43,34 @@ pub fn linear(x: &Tensor, w: &Tensor, b: Option<&Tensor>) -> Tensor {
 
     if let Some(w_bytes) = &w.fp8_bytes {
         let scale = w.scale;
+        let b_slice = b.map(|bb| bb.data.as_slice());
+
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            if let Ok(lock) = crate::webgpu::GLOBAL_WEBGPU.lock() {
+                if let Some(ref send_sync_ctx) = *lock {
+                    let gpu = &send_sync_ctx.0;
+                    let fut = gpu.dispatch_matmul_fp8(
+                        xd,
+                        w_bytes,
+                        scale,
+                        b_slice,
+                        mm,
+                        k,
+                        o,
+                        &mut out,
+                    );
+                    if pollster::block_on(fut).is_ok() {
+                        let mut shape = x.shape.clone();
+                        let n = shape.len();
+                        shape[n - 1] = o;
+                        return Tensor::new(out, shape);
+                    }
+                }
+            }
+        }
+
+        let scale = w.scale;
         out.par_chunks_mut(o).enumerate().for_each(|(row, orow)| {
             let xrow = &xd[row * k..row * k + k];
             let mut wrow_f32 = vec![0.0f32; k];

@@ -26,6 +26,8 @@ rayon = "1.10"
 memmap2 = "0.9"
 
 [target.'cfg(any(target_arch = "wasm32", target_arch = "wasm64"))'.dependencies]
+pollster = "0.3"
+futures-intrusive = "0.5"
 wasm-bindgen-futures = "0.4"
 wgpu = { version = "24", default-features = false, features = ["wgsl", "webgpu"] }
 wasm-bindgen = "0.2.120"
