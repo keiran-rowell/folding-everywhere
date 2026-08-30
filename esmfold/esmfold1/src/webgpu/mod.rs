@@ -1,4 +1,4 @@
-//! WebGPU Compute Engine for ESMFold1 FP8 operations
+//! WebGPU Compute Engine for ESMFold1 FP8 operations with 0-allocation Persistent Scratchpad Buffers
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -22,6 +22,10 @@ pub struct WebGpuContext {
     pub pipeline: wgpu::ComputePipeline,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub weight_buffer_cache: Mutex<HashMap<usize, Arc<wgpu::Buffer>>>,
+    pub scratch_input: wgpu::Buffer,
+    pub scratch_output: wgpu::Buffer,
+    pub scratch_uniforms: wgpu::Buffer,
+    pub scratch_bias: wgpu::Buffer,
 }
 
 pub struct SendSyncContext(pub Arc<WebGpuContext>);
@@ -31,7 +35,7 @@ unsafe impl Sync for SendSyncContext {}
 pub static GLOBAL_WEBGPU: Mutex<Option<SendSyncContext>> = Mutex::new(None);
 
 impl WebGpuContext {
-    /// Initialize WebGPU context asynchronously
+    /// Initialize WebGPU context asynchronously with persistent 64MB scratchpad VRAM buffers
     pub async fn init() -> Option<Arc<Self>> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::BROWSER_WEBGPU,
@@ -136,12 +140,47 @@ impl WebGpuContext {
             cache: None,
         });
 
+        // Pre-allocate persistent scratchpad buffers (64MB capacity) to eliminate driver allocation overhead
+        let scratch_size = (64 * 1024 * 1024) as u64;
+
+        let scratch_input = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Persistent Input Scratch Buffer"),
+            size: scratch_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let scratch_output = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Persistent Output Scratch Buffer"),
+            size: scratch_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let scratch_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Persistent Uniforms Buffer"),
+            size: std::mem::size_of::<MatmulUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let scratch_bias = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Persistent Bias Scratch Buffer"),
+            size: (16 * 1024 * 1024) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let ctx = Arc::new(Self {
             device,
             queue,
             pipeline,
             bind_group_layout,
             weight_buffer_cache: Mutex::new(HashMap::new()),
+            scratch_input,
+            scratch_output,
+            scratch_uniforms,
+            scratch_bias,
         });
 
         if let Ok(mut lock) = GLOBAL_WEBGPU.lock() {
@@ -176,7 +215,7 @@ impl WebGpuContext {
         }
     }
 
-    /// Dispatch FP8 Linear MatMul directly to WebGPU WGSL Compute Pipeline
+    /// Dispatch FP8 Linear MatMul with 0-allocation queue writes
     pub async fn dispatch_matmul_fp8(
         &self,
         input: &[f32],
@@ -199,42 +238,15 @@ impl WebGpuContext {
             _padding: [0; 3],
         };
 
-        let uniforms_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Matmul Uniforms Buffer"),
-            contents: bytemuck::cast_slice(&[uniforms]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        // Write to persistent GPU scratchpad buffers (0 allocation overhead!)
+        self.queue.write_buffer(&self.scratch_uniforms, 0, bytemuck::cast_slice(&[uniforms]));
+        self.queue.write_buffer(&self.scratch_input, 0, bytemuck::cast_slice(input));
 
-        let input_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Matmul Input Buffer"),
-            contents: bytemuck::cast_slice(input),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        if let Some(b) = bias {
+            self.queue.write_buffer(&self.scratch_bias, 0, bytemuck::cast_slice(b));
+        }
 
         let weight_buffer = self.get_or_create_weight_buffer(fp8_weights);
-
-        let dummy_bias = [0.0f32];
-        let bias_slice = bias.unwrap_or(&dummy_bias);
-        let bias_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Matmul Bias Buffer"),
-            contents: bytemuck::cast_slice(bias_slice),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let output_buffer_size = (batch_size * out_features * std::mem::size_of::<f32>()) as u64;
-        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Matmul Output Buffer"),
-            size: output_buffer_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Matmul Staging Buffer"),
-            size: output_buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Matmul FP8 Bind Group"),
@@ -242,11 +254,11 @@ impl WebGpuContext {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: uniforms_buffer.as_entire_binding(),
+                    resource: self.scratch_uniforms.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: input_buffer.as_entire_binding(),
+                    resource: self.scratch_input.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -254,11 +266,11 @@ impl WebGpuContext {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: bias_buffer.as_entire_binding(),
+                    resource: self.scratch_bias.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: output_buffer.as_entire_binding(),
+                    resource: self.scratch_output.as_entire_binding(),
                 },
             ],
         });
@@ -280,10 +292,7 @@ impl WebGpuContext {
             pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
-        encoder.copy_buffer_to_buffer(&output_buffer, 0, &staging_buffer, 0, output_buffer_size);
         self.queue.submit(Some(encoder.finish()));
-
-        // Fast non-blocking queue submit verification
         Ok(())
     }
 }
