@@ -450,3 +450,100 @@ impl WebGpuContext {
     }
 
 }
+
+/// High-performance Command Buffer Chaining for multi-pass compute pipelines
+pub struct CommandBatcher<'a> {
+    pub ctx: &'a WebGpuContext,
+    pub encoder: wgpu::CommandEncoder,
+    pub pass_count: usize,
+}
+
+impl<'a> CommandBatcher<'a> {
+    pub fn new(ctx: &'a WebGpuContext, label: &str) -> Self {
+        let encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some(label),
+        });
+        Self {
+            ctx,
+            encoder,
+            pass_count: 0,
+        }
+    }
+
+    /// Chain a MatMul pass without submitting to GPU queue
+    pub fn record_matmul(
+        &mut self,
+        fp8_weights: &[u8],
+        scale: f32,
+        bias: Option<&[f32]>,
+        batch_size: usize,
+        in_features: usize,
+        out_features: usize,
+    ) {
+        let has_bias = if bias.is_some() { 1u32 } else { 0u32 };
+
+        let uniforms = MatmulUniforms {
+            in_features: in_features as u32,
+            out_features: out_features as u32,
+            batch_size: batch_size as u32,
+            scale,
+            has_bias,
+            _padding: [0; 3],
+        };
+
+        self.ctx.queue.write_buffer(&self.ctx.scratch_uniforms, 0, bytemuck::cast_slice(&[uniforms]));
+        if let Some(b) = bias {
+            self.ctx.queue.write_buffer(&self.ctx.scratch_bias, 0, bytemuck::cast_slice(b));
+        }
+
+        let weight_buffer = self.ctx.get_or_create_weight_buffer(fp8_weights);
+
+        let bind_group = self.ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chained Matmul Bind Group"),
+            layout: &self.ctx.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.ctx.scratch_uniforms.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.ctx.scratch_input.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: weight_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.ctx.scratch_bias.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: self.ctx.scratch_output.as_entire_binding(),
+                },
+            ],
+        });
+
+        {
+            let mut pass = self.encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Chained Matmul Compute Pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.ctx.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+
+            let workgroups_x = ((out_features as u32) + 15) / 16;
+            let workgroups_y = ((batch_size as u32) + 15) / 16;
+            pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+        self.pass_count += 1;
+    }
+
+    /// Submit chained command buffer to GPU queue in a single atomic dispatch
+    pub fn submit(self) {
+        if self.pass_count > 0 {
+            self.ctx.queue.submit(Some(self.encoder.finish()));
+        }
+    }
+}

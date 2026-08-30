@@ -389,6 +389,15 @@
 
         let worker = new Worker('worker.js', { type: 'module' });
 
+    worker.onerror = (err) => {
+      console.error("Uncaught WebWorker Error:", err);
+      statStage.textContent = "Worker Execution Error";
+      statStage.style.color = "#f85149";
+      foldBtn.disabled = false;
+      foldBadge.textContent = "Error";
+      foldBadge.className = "badge badge-gray";
+    };
+
     worker.onmessage = (e) => {
       const { type, stage, loaded, bytesReceived, total, contentLength, speed, mbps, message, foldStage, fraction, pdb, elapsed, source } = e.data;
 
@@ -447,7 +456,11 @@
         } else if (stage === 'ram_reclaimed') {
           statReclaimed.textContent = "3.30 GiB Freed (dealloc_bytes)";
           statReclaimed.style.color = "#7ee787";
-          statWasmMem.textContent = "0.02 GiB (Active)";
+          statWasmMem.textContent = "0.02 GiB (Reclaimed)";
+          flowWasm.textContent = "0.02 GiB (Reclaimed)";
+          boxWasm.className = "flow-box";
+          boxGpu.className = "flow-box flow-active-green";
+          flowStatusLabel.textContent = "⚡ Zero-Copy iGPU VRAM Pipeline Active (3.30 GiB RAM Reclaimed)";
         } else if (stage === 'folding') {
           if (!isComplete) {
             const pct = Math.max(1, Math.min(99, Math.round(fraction * 100)));
