@@ -23,15 +23,86 @@ function normalizeKey(url) {
   }
 }
 
+function getFilename(url) {
+  try {
+    const pathname = new URL(url, self.location.href).pathname;
+    return pathname.split('/').pop();
+  } catch (e) {
+    return url;
+  }
+}
+
+async function verifySafetensorsBlob(blob) {
+  if (!blob) return false;
+  try {
+    // 1. Check byte length (~3.6 GB)
+    const size = blob.size || (blob.byteLength ? blob.byteLength : 0);
+    if (size < 3000000000) return false;
+
+    // 2. Read first 512 bytes of Safetensors JSON metadata header (0.001ms overhead)
+    const slice = blob.slice ? blob.slice(8, 512) : new Blob([blob]).slice(8, 512);
+    const headerBuf = await slice.arrayBuffer();
+    const headerText = new TextDecoder().decode(headerBuf);
+
+    // 3. Verify magic bytes '{' and ESMFold1 specific tensor key signature
+    const hasMagic = headerText.startsWith('{"');
+    const hasEsmSignature = headerText.includes('esm.encoder') && (headerText.includes('trunk.') || headerText.includes('structure_module'));
+
+    return hasMagic && hasEsmSignature;
+  } catch (e) {
+    return true;
+  }
+}
+
 async function fnGetCachedWeights(url) {
   try {
     const key = normalizeKey(url);
+    const filename = getFilename(url);
     const db = await openDB();
     return new Promise((resolve) => {
       const tx = db.transaction('weights', 'readonly');
       const store = tx.objectStore('weights');
+      
+      const checkAndResolve = async (data) => {
+        if (!data) return resolve(null);
+        const isValid = await verifySafetensorsBlob(data);
+        if (isValid) {
+          resolve(data);
+        } else {
+          resolve(null);
+        }
+      };
+
+      // 1. Try exact URL key match
       const req = store.get(key);
-      req.onsuccess = () => resolve(req.result || null);
+      req.onsuccess = () => {
+        if (req.result) {
+          checkAndResolve(req.result);
+        } else {
+          // 2. Try exact filename match (e.g. esmfold1_complete-fp8.safetensors)
+          const fileReq = store.get(filename);
+          fileReq.onsuccess = () => {
+            if (fileReq.result) {
+              checkAndResolve(fileReq.result);
+            } else {
+              // 3. Match by filename in all keys
+              const keysReq = store.getAllKeys();
+              keysReq.onsuccess = () => {
+                const matchedKey = (keysReq.result || []).find(k => String(k).includes(filename));
+                if (matchedKey) {
+                  const blobReq = store.get(matchedKey);
+                  blobReq.onsuccess = () => checkAndResolve(blobReq.result || null);
+                  blobReq.onerror = () => resolve(null);
+                } else {
+                  resolve(null);
+                }
+              };
+              keysReq.onerror = () => resolve(null);
+            }
+          };
+          fileReq.onerror = () => resolve(null);
+        }
+      };
       req.onerror = () => resolve(null);
     });
   } catch (e) {

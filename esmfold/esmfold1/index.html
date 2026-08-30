@@ -269,7 +269,7 @@
         const req = store.getAllKeys();
         req.onsuccess = () => {
           if (req.result && req.result.length > 0) {
-            weightsInput.value = "";
+            weightsInput.value = "https://huggingface.co/datasets/keiran-rowell/esmfold1-fp8-wasm/resolve/main/esmfold1_complete-fp8.safetensors";
             weightsInput.placeholder = "Loaded from IndexedDB Local SSD Cache (Instant Load)";
             weightsInput.disabled = true;
             cacheBadgeNotice.style.display = "block";
