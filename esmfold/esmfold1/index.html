@@ -399,7 +399,18 @@
         arrow3.className = "flow-arrow";
 
         const pdbText = typeof pdb === 'string' ? pdb : String(pdb);
-        outEl.textContent = pdbText;
+        console.log("✅ PDB Output Received (Length: " + (pdbText ? pdbText.length : 0) + " bytes)");
+        
+        const outputEl = document.getElementById('output');
+        if (outputEl) {
+          outputEl.textContent = pdbText;
+          outputEl.style.display = 'block';
+          outputEl.style.visibility = 'visible';
+          console.log("✅ Rendered to #output element");
+        } else {
+          console.error("❌ #output DOM element not found!");
+        }
+
         foldBtn.disabled = false;
 
         const downloadBtn = document.getElementById('downloadBtn');
