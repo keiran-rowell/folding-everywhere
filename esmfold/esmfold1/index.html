@@ -144,7 +144,7 @@
     <div class="flow-steps">
       <div class="flow-box" id="boxHost">
         <span class="flow-box-title">REMOTE CDN / HOST</span>
-        <span class="flow-box-val" id="flowHost">HTTPS Stream</span>
+        <span class="flow-box-val" id="flowHost">HTTPS Host Retrieval</span>
       </div>
       <span class="flow-arrow" id="arrow1">➔</span>
       <div class="flow-box" id="boxIdb">
@@ -179,7 +179,7 @@
       <div class="stat-row"><span class="stat-label">WASM Linear RAM:</span><span class="stat-val" id="statWasmMem">0.00 GB Allocated</span></div>
       <div class="stat-row"><span class="stat-label">Local Streamed:</span><span class="stat-val" id="statStreamMb">0 / 0 MB</span></div>
       <div class="stat-row"><span class="stat-label">Stream Speed:</span><span class="stat-val" id="statSpeed">0.0 MB/s</span></div>
-      <div class="stat-row"><span class="stat-label">RAM Reclamation:</span><span class="stat-val" id="statReclaimed" style="color: var(--text-muted);">Pending VRAM Upload</span></div>
+      <div class="stat-row"><span class="stat-label">RAM Memory Freed:</span><span class="stat-val" id="statReclaimed" style="color: var(--text-muted);">Buffering to Local VRAM</span></div>
       <div class="progress-bar-container"><div class="progress-bar-fill" id="streamFill"></div></div>
     </div>
   </div>
@@ -205,8 +205,11 @@
     <button id="foldBtn">⚡ Run ESMFold Prediction (WebGPU Accelerated)</button>
   </div>
 
-  <h3>Predicted PDB Structure Output:</h3>
-  <pre id="output">PDB text will appear here...</pre>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+    <h3 style="margin: 0;">Predicted PDB Structure Output:</h3>
+    <button id="downloadBtn" style="width: auto; padding: 8px 18px; display: none; background: linear-gradient(to right, #22c55e, #16a34a);">💾 Save PDB Structure</button>
+  </div>
+  <pre id="output" style="margin-top: 10px;">PDB text will appear here...</pre>
 
   <script type="module">
     const threadsInput = document.getElementById('threads');
@@ -351,7 +354,7 @@
       } else if (type === 'complete') {
         foldBadge.textContent = "Completed";
         foldBadge.className = "badge badge-green";
-        statStage.textContent = `Finished in ${elapsed} seconds!`;
+        statStage.textContent = `Finished in ${elapsed} seconds! (Total Execution Time)`;
         flowStatusLabel.textContent = "Complete";
         foldFill.style.width = '100%';
         
@@ -359,8 +362,24 @@
         boxGpu.className = "flow-box";
         arrow3.className = "flow-arrow";
 
-        outEl.textContent = pdb;
+        const pdbText = typeof pdb === 'string' ? pdb : String(pdb);
+        outEl.textContent = pdbText;
         foldBtn.disabled = false;
+
+        const downloadBtn = document.getElementById('downloadBtn');
+        if (downloadBtn) {
+          downloadBtn.style.display = 'inline-block';
+          downloadBtn.onclick = () => {
+            const blob = new Blob([pdbText], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'esmfold1_prediction.pdb';
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+        }
+        outEl.scrollIntoView({ behavior: 'smooth' });
       } else if (type === 'error') {
         foldBadge.textContent = "Error";
         foldBadge.className = "badge badge-gray";

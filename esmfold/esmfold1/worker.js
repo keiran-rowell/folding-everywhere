@@ -214,7 +214,7 @@ self.onmessage = async (e) => {
       }
     }
 
-    self.postMessage({ type: 'telemetry', stage: 'fold_start', message: 'Uploading layer weights to WebGPU VRAM...' });
+    self.postMessage({ type: 'telemetry', stage: 'fold_start', message: 'Buffering layer weights into iGPU VRAM...' });
     
     if (gpuActive) {
       self.postMessage({
@@ -222,7 +222,7 @@ self.onmessage = async (e) => {
         stage: 'ram_reclaimed',
         reclaimed: true,
         freedMb: (cachedLen / (1024 * 1024)).toFixed(0),
-        message: `✅ WebGPU VRAM Upload Complete: ${(cachedLen / (1024 * 1024 * 1024)).toFixed(2)} GB ready in iGPU VRAM!`
+        message: `✅ iGPU VRAM Memory Ready: ${(cachedLen / (1024 * 1024 * 1024)).toFixed(2)} GB ready in iGPU VRAM!`
       });
     }
 
