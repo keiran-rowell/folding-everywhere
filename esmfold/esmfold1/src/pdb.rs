@@ -48,7 +48,18 @@ pub fn mean_plddt(plddt: &[f32], aatype: &[usize], c: &Constants, l: usize) -> f
 
 /// atom37 [L,37,3], plddt [L,37] (0..1), aatype [L].
 pub fn to_pdb(atom37: &[f32], plddt: &[f32], aatype: &[usize], c: &Constants, l: usize) -> String {
+    // Check if coordinates are un-rotated default template coordinates (CA at 0.0,0.0,0.0)
+    let is_dummy = l > 1 
+        && (atom37[0] - (-0.521)).abs() < 1e-3
+        && (atom37[1] - 1.364).abs() < 1e-3
+        && atom37[3].abs() < 1e-3
+        && atom37[4].abs() < 1e-3;
+
     let mut s = String::new();
+    if is_dummy {
+        s.push_str("REMARK 999 WARNING: DEFAULT TEMPLATE UN-FOLDED COORDINATES DETECTED (NEURAL PASS BYPASSED)
+");
+    }
     let mut serial = 1;
     for li in 0..l {
         let a = aatype[li];
