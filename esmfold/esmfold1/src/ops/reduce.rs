@@ -6,6 +6,9 @@ use crate::tensor::Tensor;
 /// `weight`/`bias` have length C (the last dim). Two-pass mean/var in fp32.
 pub fn layer_norm(x: &Tensor, weight: &Tensor, bias: &Tensor, eps: f32) -> Tensor {
     let c = x.shape[x.ndim() - 1];
+    if weight.numel() != c || bias.numel() != c {
+        crate::web_error!("layer_norm shape mismatch: x shape = {:?}, C = {}, weight numel = {}, bias numel = {}", x.shape, c, weight.numel(), bias.numel());
+    }
     assert_eq!(weight.numel(), c);
     assert_eq!(bias.numel(), c);
     let rows = x.numel() / c;

@@ -16,10 +16,12 @@ const RECYCLE_BINS: usize = 15;
 
 /// LM 37-state stack (each [L+2,2560]) -> s_s_0 [L,1024].
 pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
+    crate::web_log!("lm_to_trunk: states count = {}, states[0] shape = {:?}", states.len(), states[0].shape);
     let lp2 = states[0].shape[0];
     let l = lp2 - 2;
     let d = states[0].shape[1]; // 2560
     let n_layers = states.len(); // 37
+    crate::web_log!("lm_to_trunk: sequence length L = {}, D = {}, N_LAYERS = {}", l, d, n_layers);
     // softmax(esm_s_combine)
     let comb = w.get("esm_s_combine").data;
     let m = comb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
