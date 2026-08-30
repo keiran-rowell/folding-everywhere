@@ -3,16 +3,12 @@
 //! Parallelism (rayon) is over OUTPUT ROWS only; the K-reduction for any single
 //! output element is always a sequential fp32 fold in ascending k. Therefore the
 //! result is independent of thread count -> deterministic.
-//!
-//! A `*_f64` diagnostic variant accumulates in f64 (correctly-rounded-ish) to let
-//! tests decide whether a divergence is fp32-accumulation noise or a real bug.
 
+use crate::quant::E4M3_TO_F32_LUT;
 use crate::tensor::Tensor;
-//use rayon::prelude::*;
 use crate::par_iter::*;
 
-/// Vectorizable fp32 dot product with a fixed 8-lane partial-sum order
-/// (deterministic; lets LLVM emit AVX FMA for the reduction).
+/// Vectorizable fp32 dot product with a fixed 8-lane partial-sum order.
 #[inline]
 pub fn dot8(a: &[f32], b: &[f32], k: usize) -> f32 {
     let mut acc = [0.0f32; 8];
@@ -37,27 +33,47 @@ pub fn linear(x: &Tensor, w: &Tensor, b: Option<&Tensor>) -> Tensor {
     let (m, k) = (x.shape[x.ndim() - 2], x.shape[x.ndim() - 1]);
     let lead: usize = x.numel() / (m * k); // any leading batch dims collapsed
     let mm = lead * m;
-    assert_eq!(w.shape[1], k, "linear K mismatch x{:?} w{:?}", x.shape, w.shape);
     let o = w.shape[0];
+    assert_eq!(w.shape[1], k, "linear K mismatch x{:?} w{:?}", x.shape, w.shape);
     if let Some(bb) = b {
         assert_eq!(bb.numel(), o);
     }
     let mut out = vec![0.0f32; mm * o];
     let xd = &x.data;
-    let wd = &w.data;
-    out.par_chunks_mut(o).enumerate().for_each(|(row, orow)| {
-        let xrow = &xd[row * k..row * k + k];
-        for oi in 0..o {
-            orow[oi] = dot8(xrow, &wd[oi * k..oi * k + k], k);
-        }
-    });
-    if let Some(bb) = b {
-        out.par_chunks_mut(o).for_each(|orow| {
+
+    if let Some(w_bytes) = &w.fp8_bytes {
+        let scale = w.scale;
+        out.par_chunks_mut(o).enumerate().for_each(|(row, orow)| {
+            let xrow = &xd[row * k..row * k + k];
+            let mut wrow_f32 = vec![0.0f32; k];
             for oi in 0..o {
-                orow[oi] += bb.data[oi];
+                let w_fp8 = &w_bytes[oi * k..oi * k + k];
+                for col in 0..k {
+                    wrow_f32[col] = E4M3_TO_F32_LUT[w_fp8[col] as usize] * scale;
+                }
+                let d = dot8(xrow, &wrow_f32, k);
+                orow[oi] = if let Some(bb) = b {
+                    d + bb.data[oi]
+                } else {
+                    d
+                };
+            }
+        });
+    } else {
+        let wd = &w.data;
+        out.par_chunks_mut(o).enumerate().for_each(|(row, orow)| {
+            let xrow = &xd[row * k..row * k + k];
+            for oi in 0..o {
+                let d = dot8(xrow, &wd[oi * k..oi * k + k], k);
+                orow[oi] = if let Some(bb) = b {
+                    d + bb.data[oi]
+                } else {
+                    d
+                };
             }
         });
     }
+
     let mut shape = x.shape.clone();
     let n = shape.len();
     shape[n - 1] = o;
@@ -85,31 +101,4 @@ pub fn matmul2d(a: &Tensor, b: &Tensor) -> Tensor {
         }
     });
     Tensor::new(out, vec![m, n])
-}
-
-/// Diagnostic: linear with f64 accumulation, rounded to f32 at the end.
-pub fn linear_f64(x: &Tensor, w: &Tensor, b: Option<&Tensor>) -> Tensor {
-    let (m, k) = (x.shape[x.ndim() - 2], x.shape[x.ndim() - 1]);
-    let lead: usize = x.numel() / (m * k);
-    let mm = lead * m;
-    let o = w.shape[0];
-    let mut out = vec![0.0f32; mm * o];
-    let xd = &x.data;
-    let wd = &w.data;
-    out.par_chunks_mut(o).enumerate().for_each(|(row, orow)| {
-        let xrow = &xd[row * k..row * k + k];
-        for oi in 0..o {
-            let wrow = &wd[oi * k..oi * k + k];
-            let mut acc = 0.0f64;
-            for kk in 0..k {
-                acc += xrow[kk] as f64 * wrow[kk] as f64;
-            }
-            let bias = b.map(|bb| bb.data[oi] as f64).unwrap_or(0.0);
-            orow[oi] = (acc + bias) as f32;
-        }
-    });
-    let mut shape = x.shape.clone();
-    let n = shape.len();
-    shape[n - 1] = o;
-    Tensor::new(out, shape)
 }

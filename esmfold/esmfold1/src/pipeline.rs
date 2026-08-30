@@ -52,7 +52,7 @@ pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
     let h = ops::relu(&h);
     let mut s_s0 = ops::linear(&h, &w.get("esm_s_mlp.3.weight"), Some(&w.get("esm_s_mlp.3.bias")));
     // + embedding(aatype)
-    let emb = w.get("embedding.weight"); // [23,1024]
+    let emb = w.get("embedding.weight").to_f32(); // [23,1024]
     let cs = s_s0.shape[1];
     for li in 0..l {
         let row = aatype[li] * cs;
@@ -133,7 +133,7 @@ pub fn fold_cb(w: &Weights, consts: &Constants, seq: &str, prog: &mut dyn FnMut(
     let mut recycle_z = Tensor::zeros(&[l, l, trunk::C_Z]);
     let mut recycle_bins = vec![0usize; l * l];
 
-    let disto_w = w.get("trunk.recycle_disto.weight"); // [15,128]
+    let disto_w = w.get("trunk.recycle_disto.weight").to_f32(); // [15,128]
     let mut s_z = s_z0.clone();
     let mut structure: Vec<StructIter> = Vec::new();
 

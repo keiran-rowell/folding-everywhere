@@ -6,10 +6,10 @@
 //! Weights:  --weights PATH | $ESMFOLD_WEIGHTS | HF cache
 //! Constants: --constants PATH | $ESMFOLD_CONSTANTS
 
-use esmfold::constants::Constants;
-use esmfold::pdb::{mean_plddt, to_pdb};
-use esmfold::pipeline::fold;
-use esmfold::weights::Weights;
+use esmfold1::constants::Constants;
+use esmfold1::pdb::{mean_plddt, to_pdb};
+use esmfold1::pipeline::fold;
+use esmfold1::weights::Weights;
 use std::time::Instant;
 
 fn find_weights(arg: Option<String>) -> Weights<'static> {

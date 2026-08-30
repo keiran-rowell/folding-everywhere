@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ESMFold1 WASM64 Test</title>
+  <title>ESMFold1 3B FP8 WASM64</title>
   <style>
     body { font-family: monospace; max-width: 800px; margin: 40px auto; padding: 0 20px; }
     textarea { width: 100%; height: 80px; font-family: inherit; }
@@ -12,13 +12,13 @@
   </style>
 </head>
 <body>
-  <h2>ESMFold v1 — WASM64 Browser Runner</h2>
+  <h2>ESMFold v1 3B FP8 — WASM64 Browser Runner</h2>
 
   <label for="fasta">Amino Acid Sequence:</label>
   <textarea id="fasta">MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG</textarea>
 
-  <label for="weights">Path/URL to ESMFold1 Weights (.safetensors [preferred!] or .pt [buggy]):</label>
-  <input type="text" id="weights" value="./weights/esmfold_v1_complete.safetensors" style="width: 100%; margin: 8px 0;">
+  <label for="weights">Path/URL to ESMFold1 FP8 Weights (.safetensors):</label>
+  <input type="text" id="weights" value="./weights/esmfold_v1_complete-fp8.safetensors" style="width: 100%; margin: 8px 0;">
 
   <button id="foldBtn">Run Fold</button>
   <p id="status">Ready</p>

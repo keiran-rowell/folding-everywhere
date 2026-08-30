@@ -43,7 +43,7 @@ fn residue_mlp(x: &Tensor, w: &Weights, p: &str) -> Tensor {
 
 /// Relative position embedding -> z bias [L,L,C_Z]. diff[i,j] = j - i (clamped).
 pub fn relative_position(l: usize, w: &Weights) -> Tensor {
-    let emb = w.get("trunk.pairwise_positional_embedding.embedding.weight"); // [2*bins+2, C_Z]
+    let emb = w.get("trunk.pairwise_positional_embedding.embedding.weight").to_f32(); // [2*bins+2, C_Z]
     let mut out = vec![0.0f32; l * l * C_Z];
     for i in 0..l {
         for j in 0..l {

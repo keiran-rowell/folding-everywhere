@@ -2,10 +2,10 @@
 name = "esmfold1"
 version = "0.1.0"
 edition = "2021"
-description = "Pure-Rust fp32 reimplementation of ESMFold v1"
+description = "Pure-Rust fp32/fp8 reimplementation of ESMFold v1"
 
 [lib]
-name = "esmfold"
+name = "esmfold1"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
@@ -32,5 +32,5 @@ js-sys = "0.3"
 
 [profile.release]
 debug = true
-opt-level = 2
-panic = "unwind" 
+opt-level = 3
+panic = "abort"
