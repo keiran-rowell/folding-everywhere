@@ -15,4 +15,16 @@ wasm-bindgen \
   --out-dir pkg \
   ../../target/wasm32-unknown-unknown/release/esmfold1.wasm
 
+# Patch wasm-bindgen-rayon snippet to import esmfold1.js explicitly instead of directory URL
+python3 -c "
+import glob
+for f in glob.glob('pkg/snippets/wasm-bindgen-rayon-*/src/workerHelpers.js'):
+    with open(f, 'r') as file:
+        code = file.read()
+    code = code.replace(\"import('../../..')\", \"import('../../../esmfold1.js')\")
+    with open(f, 'w') as file:
+        file.write(code)
+    print(f'Patched {f}')
+"
+
 echo "WASM multithreaded build complete."
