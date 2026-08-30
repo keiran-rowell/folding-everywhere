@@ -412,6 +412,7 @@
           const curLoaded = bytesReceived || loaded || 0;
           const curTotal = contentLength || total || 3542960628;
           const curSpeed = mbps || (speed ? `${speed} MB/s` : 'NaN MB/s');
+          const isFromCache = fromCache || isCached || (typeof curSpeed === 'string' && curSpeed.includes('IndexedDB')) || boxIdb.classList.contains('box-green-cached');
           
           const mb = (curLoaded / (1024 * 1024)).toFixed(0);
           const totMb = (curTotal / (1024 * 1024)).toFixed(0);
@@ -422,17 +423,28 @@
           const totalGb = (curTotal / 1e9).toFixed(2);
 
           statStreamMb.textContent = `${mb} / ${totMb} MB (${pct}%)`;
-          statSpeed.textContent = curSpeed.includes('MB/s') ? curSpeed : `${curSpeed} MB/s`;
+          statSpeed.textContent = (typeof curSpeed === 'string' && curSpeed.includes('MB/s')) ? curSpeed : `${curSpeed} MB/s`;
           streamFill.style.width = `${pct}%`;
-          streamBadge.textContent = "Streaming CDN";
-          streamBadge.className = "badge badge-blue";
 
-          statStage.textContent = `Fetching model weights from CDN (${pct}%)`;
-          flowStatusLabel.textContent = `Streaming HuggingFace CDN ➔ IndexedDB: ${pct}% (${curSpeed})`;
-          boxHost.className = "flow-box flow-active-blue";
-          arrow1.className = "flow-arrow arrow-active";
-          boxIdb.className = "flow-box flow-active-blue";
-          flowIdb.textContent = `${loadedGb} / ${totalGb} GB`;
+          if (isFromCache) {
+            streamBadge.textContent = "IndexedDB SSD Cache";
+            streamBadge.className = "badge badge-green";
+            statStage.textContent = `Loading weights from IndexedDB SSD Cache (${pct}%)`;
+            flowStatusLabel.textContent = `Streaming IndexedDB SSD Cache ➔ WASM RAM: ${pct}% (${curSpeed})`;
+            boxHost.className = "flow-box";
+            arrow1.className = "flow-arrow";
+            boxIdb.className = "flow-box box-green-cached";
+            flowIdb.textContent = "3.54 GB (SSD Cached)";
+          } else {
+            streamBadge.textContent = "Streaming CDN";
+            streamBadge.className = "badge badge-blue";
+            statStage.textContent = `Fetching model weights from CDN (${pct}%)`;
+            flowStatusLabel.textContent = `Streaming HuggingFace CDN ➔ IndexedDB: ${pct}% (${curSpeed})`;
+            boxHost.className = "flow-box flow-active-blue";
+            arrow1.className = "flow-arrow arrow-active";
+            boxIdb.className = "flow-box flow-active-blue";
+            flowIdb.textContent = `${loadedGb} / ${totalGb} GB`;
+          }
         } else if (stage === 'stream_complete') {
           streamBadge.textContent = "Cached";
           streamBadge.className = "badge badge-green";
@@ -447,6 +459,10 @@
           boxIdb.className = "flow-box box-green-cached";
           flowIdb.textContent = "3.54 GB (SSD Cached)";
         } else if (stage === 'ram_reclaimed') {
+          streamBadge.textContent = "L1 WASM cache + VRAM (weights)";
+          streamBadge.className = "badge badge-green";
+          statSpeed.textContent = "⚡ Zero-Copy VRAM (Resident)";
+          statSpeed.style.color = "#7ee787";
           statReclaimed.textContent = "3.30 GiB Freed (dealloc_bytes)";
           statReclaimed.style.color = "#7ee787";
           statWasmMem.textContent = "0.02 GiB (Reclaimed)";
@@ -456,6 +472,10 @@
           arrow3.className = "flow-arrow arrow-active";
           flowStatusLabel.textContent = "⚡ Dual WASM + iGPU VRAM Execution Active (3.30 GiB RAM Reclaimed)";
         } else if (stage === 'folding') {
+          streamBadge.textContent = "L1 WASM cache + VRAM (weights)";
+          streamBadge.className = "badge badge-green";
+          statSpeed.textContent = "⚡ Zero-Copy VRAM (Resident)";
+          statSpeed.style.color = "#7ee787";
           boxHost.className = "flow-box";
           arrow1.className = "flow-arrow";
           boxIdb.className = "flow-box box-green-cached";
