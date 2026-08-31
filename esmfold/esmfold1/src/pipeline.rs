@@ -151,6 +151,8 @@ pub fn fold_cb_with_recycles(w: &Weights, consts: &Constants, seq: &str, num_rec
     });
     prog("Combining language-model features…", 0.30);
     let s_s0 = lm_to_trunk(&states, &aatype, w);
+    crate::web_log!("fold_cb: lm_to_trunk completed! Dropping ESM-2 37-layer states tensor stack (reclaiming 143 MB RAM)...");
+    drop(states);
     crate::web_log!("fold_cb: lm_to_trunk completed! allocating s_z0 zeros [{}, {}, 128]...", l, l);
     let s_z0 = Tensor::zeros(&[l, l, trunk::C_Z]);
     crate::web_log!("fold_cb: s_z0 allocated shape = {:?}", s_z0.shape);
