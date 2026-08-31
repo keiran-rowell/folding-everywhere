@@ -1,5 +1,8 @@
 import init, { alloc_bytes, dealloc_bytes, fold_esmfold1_from_ptr, fold_esmfold1_from_ptr_async, initThreadPool, init_webgpu_backend } from './pkg/esmfold1.js';
 
+// Auto-initialize WASM binary with fresh cache-busting timestamp
+const wasmInitPromise = init('./pkg/esmfold1_bg.wasm?v=' + Date.now());
+
 const REPORT_INTERVAL = 2 * 1024 * 1024; // 2 MB interval for smooth real-time UI streaming updates
 let poolInitialized = false;
 let cachedPtr = null;
@@ -145,7 +148,7 @@ self.onmessage = async (e) => {
 
   try {
     self.postMessage({ type: 'telemetry', stage: 'init_wasm', message: 'Initialising Local 64-bit WASM VM Memory Space...' });
-    const wasm = await init();
+    const wasm = await wasmInitPromise;
 
     if (typeof initThreadPool === 'function' && !poolInitialized) {
       const numThreads = threads || navigator.hardwareConcurrency || 4;
