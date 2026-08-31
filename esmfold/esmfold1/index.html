@@ -371,7 +371,8 @@
       hwBadge.className = "badge badge-gray";
     }
 
-        let worker = new Worker('worker.js?v=' + Date.now(), { type: 'module' });
+        let workerUrl = new URL('worker.js?v=' + Date.now(), window.location.href).href;
+    let worker = new Worker(workerUrl, { type: 'module' });
 
     worker.onerror = (err) => {
       console.error("Uncaught WebWorker Error:", err);

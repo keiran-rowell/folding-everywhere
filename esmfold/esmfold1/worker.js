@@ -1,7 +1,8 @@
 import init, { alloc_bytes, dealloc_bytes, fold_esmfold1_from_ptr, fold_esmfold1_from_ptr_async, initThreadPool, init_webgpu_backend } from './pkg/esmfold1.js';
 
 // Auto-initialize WASM binary with fresh cache-busting timestamp
-const wasmInitPromise = init('./pkg/esmfold1_bg.wasm?v=' + Date.now());
+const wasmUrl = new URL('./pkg/esmfold1_bg.wasm?v=' + Date.now(), import.meta.url).href;
+const wasmInitPromise = init(wasmUrl);
 
 const REPORT_INTERVAL = 2 * 1024 * 1024; // 2 MB interval for smooth real-time UI streaming updates
 let poolInitialized = false;
