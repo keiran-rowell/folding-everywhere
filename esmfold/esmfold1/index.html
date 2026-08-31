@@ -165,7 +165,7 @@
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     pre { background: #161b22; border: 1px solid var(--border); padding: 12px; border-radius: 4px; max-height: 350px; overflow-y: auto; font-size: 0.82rem; color: #a5f3fc; }
   </style>
-  <script src="https://3dmol.org/build/3Dmol-min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.4/3Dmol-min.js"></script>
 </head>
 <body>
   <div class="header-bar">
@@ -371,8 +371,7 @@
       hwBadge.className = "badge badge-gray";
     }
 
-        let workerUrl = new URL('worker.js?v=' + Date.now(), window.location.href).href;
-    let worker = new Worker(workerUrl, { type: 'module' });
+        let worker = new Worker('./worker.js', { type: 'module' });
 
     worker.onerror = (err) => {
       console.error("Uncaught WebWorker Error:", err);
@@ -384,7 +383,7 @@
     };
 
     worker.onmessage = (e) => {
-      const { type, stage, loaded, bytesReceived, total, contentLength, speed, mbps, message, foldStage, fraction, pdb, elapsed, source } = e.data;
+      const { type, stage, loaded, bytesReceived, total, contentLength, speed, mbps, message, foldStage, fraction, pdb, elapsed, source, fromCache, isCached } = e.data;
 
       if (type === 'telemetry') {
         if (stage === 'init_webgpu') {
@@ -531,16 +530,22 @@
         const viewport = document.getElementById('viewport');
         viewport.style.display = 'block';
 
-        if (window.$3Dmol) {
-          viewport.innerHTML = '';
-          const viewer = $3Dmol.createViewer(viewport, { backgroundColor: '#0d1117' });
-          viewer.addModel(pdb, "pdb");
-          viewer.setStyle({}, { cartoon: { color: 'spectrum' } });
-          viewer.zoomTo();
-          viewer.render();
-        }
-
-        viewport.scrollIntoView({ behavior: 'smooth' });
+        setTimeout(() => {
+          const m3d = window.$3Dmol || window['3Dmol'] || window.TDmol || null;
+          if (m3d) {
+            viewport.innerHTML = '';
+            const viewer = m3d.createViewer(viewport, { backgroundColor: '#0d1117' });
+            viewer.addModel(pdb, "pdb");
+            viewer.setStyle({}, { cartoon: { color: 'spectrum' } });
+            viewer.zoomTo();
+            viewer.render();
+            viewer.resize();
+            console.log("✅ 3Dmol WebGL 3D structure rendered successfully!");
+          } else {
+            console.warn("⚠️ 3Dmol library not available on window.$3Dmol or window.3Dmol");
+          }
+          viewport.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
       } else if (type === 'error') {
         document.getElementById('output').textContent = `Error: ${message}`;
         foldBtn.disabled = false;

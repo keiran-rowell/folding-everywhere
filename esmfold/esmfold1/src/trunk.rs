@@ -126,10 +126,13 @@ fn seq_attention(y: &Tensor, bias: &Tensor, w: &Weights, bp: &str, l: usize) -> 
 /// sequence_to_pair: outer product/diff -> pair update [L,L,C_Z].
 fn sequence_to_pair(s: &Tensor, w: &Weights, bp: &str, l: usize) -> Tensor {
     let p = format!("{bp}.sequence_to_pair");
+    crate::web_log!("sequence_to_pair: running layernorm...");
     let sl = ln(s, w, &format!("{p}.layernorm"));
+    crate::web_log!("sequence_to_pair: running proj...");
     let proj = lin(&sl, w, &format!("{p}.proj")); // [L, C_Z] (inner_dim*2 = 128)
     let inner = C_Z / 2; // 64
     let pd = &proj.data;
+    crate::web_log!("sequence_to_pair: sl shape = {:?}, proj shape = {:?}, proj len = {}, C_Z = {}", sl.shape, proj.shape, pd.len(), C_Z);
     // x[i,j] = cat(prod, diff); prod[i,j,c]=q[j,c]*k[i,c]; diff[i,j,c]=q[j,c]-k[i,c]
     // q = proj[:, :inner], k = proj[:, inner:2*inner]
     let mut x = vec![0.0f32; l * l * (2 * inner)];
@@ -145,6 +148,7 @@ fn sequence_to_pair(s: &Tensor, w: &Weights, bp: &str, l: usize) -> Tensor {
         }
     });
     let xt = Tensor::new(x, vec![l, l, 2 * inner]);
+    crate::web_log!("sequence_to_pair: running o_proj... xt shape = {:?}", xt.shape);
     lin(&xt, w, &format!("{p}.o_proj"))
 }
 
