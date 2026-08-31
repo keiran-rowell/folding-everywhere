@@ -23,7 +23,9 @@ pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
     let n_layers = states.len(); // 37
     crate::web_log!("lm_to_trunk: sequence length L = {}, D = {}, N_LAYERS = {}", l, d, n_layers);
     // softmax(esm_s_combine)
-    let comb = w.get("esm_s_combine").data;
+    let comb_tensor = w.get("esm_s_combine").to_f32();
+    let comb = &comb_tensor.data;
+    crate::web_log!("lm_to_trunk: esm_s_combine shape = {:?}, data len = {}", comb_tensor.shape, comb.len());
     let m = comb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let mut sm = vec![0.0f32; n_layers];
     let mut sum = 0.0f32;
@@ -48,10 +50,16 @@ pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
         }
     }
     let combined = Tensor::new(combined, vec![l, d]);
+    crate::web_log!("lm_to_trunk: combined tensor created shape = {:?}", combined.shape);
+
     // esm_s_mlp: LN -> Linear -> ReLU -> Linear
+    crate::web_log!("lm_to_trunk: running esm_s_mlp.0 layer_norm...");
     let h = ops::layer_norm(&combined, &w.get("esm_s_mlp.0.weight"), &w.get("esm_s_mlp.0.bias"), 1e-5);
+    crate::web_log!("lm_to_trunk: running esm_s_mlp.1 linear...");
     let h = ops::linear(&h, &w.get("esm_s_mlp.1.weight"), Some(&w.get("esm_s_mlp.1.bias")));
+    crate::web_log!("lm_to_trunk: running relu...");
     let h = ops::relu(&h);
+    crate::web_log!("lm_to_trunk: running esm_s_mlp.3 linear...");
     let mut s_s0 = ops::linear(&h, &w.get("esm_s_mlp.3.weight"), Some(&w.get("esm_s_mlp.3.bias")));
     // + embedding(aatype)
     let emb_tensor = w.get("embedding.weight");
@@ -71,6 +79,7 @@ pub fn lm_to_trunk(states: &[Tensor], aatype: &[usize], w: &Weights) -> Tensor {
     } else {
         crate::web_error!("lm_to_trunk: embedding.weight data is empty!");
     }
+    crate::web_log!("lm_to_trunk: s_s0 successfully created! shape = {:?}", s_s0.shape);
     s_s0
 }
 
@@ -142,21 +151,28 @@ pub fn fold_cb_with_recycles(w: &Weights, consts: &Constants, seq: &str, num_rec
     });
     prog("Combining language-model features…", 0.30);
     let s_s0 = lm_to_trunk(&states, &aatype, w);
+    crate::web_log!("fold_cb: lm_to_trunk completed! allocating s_z0 zeros [{}, {}, 128]...", l, l);
     let s_z0 = Tensor::zeros(&[l, l, trunk::C_Z]);
+    crate::web_log!("fold_cb: s_z0 allocated shape = {:?}", s_z0.shape);
 
     let mut recycle_s = Tensor::zeros(&[l, trunk::C_S]);
     let mut recycle_z = Tensor::zeros(&[l, l, trunk::C_Z]);
     let mut recycle_bins = vec![0usize; l * l];
+    crate::web_log!("fold_cb: recycle_s, recycle_z, recycle_bins allocated");
 
     let disto_w = w.get("trunk.recycle_disto.weight").to_f32(); // [15,128]
+    crate::web_log!("fold_cb: disto_w loaded shape = {:?}, data len = {}", disto_w.shape, disto_w.data.len());
     let mut s_z = s_z0.clone();
     let mut structure: Vec<StructIter> = Vec::new();
 
     let max_recycles = num_recycles.clamp(1, 4);
     for r in 0..max_recycles {
+        crate::web_log!("fold_cb: starting recycle {}/{}", r + 1, max_recycles);
         let base = 0.30 + 0.165 * r as f32; // each recycle ~16.5%
         let rs = ops::layer_norm(&recycle_s, &w.get("trunk.recycle_s_norm.weight"), &w.get("trunk.recycle_s_norm.bias"), 1e-5);
+        crate::web_log!("fold_cb: recycle_s_norm LN completed");
         let mut rz = ops::layer_norm(&recycle_z, &w.get("trunk.recycle_z_norm.weight"), &w.get("trunk.recycle_z_norm.bias"), 1e-5);
+        crate::web_log!("fold_cb: recycle_z_norm LN completed");
         if !disto_w.data.is_empty() {
             for ij in 0..l * l {
                 let b = recycle_bins[ij] * trunk::C_Z;

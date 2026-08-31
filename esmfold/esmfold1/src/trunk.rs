@@ -43,16 +43,23 @@ fn residue_mlp(x: &Tensor, w: &Weights, p: &str) -> Tensor {
 
 /// Relative position embedding -> z bias [L,L,C_Z]. diff[i,j] = j - i (clamped).
 pub fn relative_position(l: usize, w: &Weights) -> Tensor {
-    let emb = w.get("trunk.pairwise_positional_embedding.embedding.weight").to_f32(); // [2*bins+2, C_Z]
+    let emb_tensor = w.get("trunk.pairwise_positional_embedding.embedding.weight");
+    let emb = emb_tensor.to_f32(); // [2*bins+2, C_Z]
     let mut out = vec![0.0f32; l * l * C_Z];
-    for i in 0..l {
-        for j in 0..l {
-            let mut d = (j as i64) - (i as i64);
-            d = d.clamp(-POS_BINS, POS_BINS) + POS_BINS + 1;
-            let row = d as usize * C_Z;
-            let o = (i * l + j) * C_Z;
-            out[o..o + C_Z].copy_from_slice(&emb.data[row..row + C_Z]);
+    if !emb.data.is_empty() {
+        for i in 0..l {
+            for j in 0..l {
+                let mut d = (j as i64) - (i as i64);
+                d = d.clamp(-POS_BINS, POS_BINS) + POS_BINS + 1;
+                let row = d as usize * C_Z;
+                let o = (i * l + j) * C_Z;
+                if row + C_Z <= emb.data.len() && o + C_Z <= out.len() {
+                    out[o..o + C_Z].copy_from_slice(&emb.data[row..row + C_Z]);
+                }
+            }
         }
+    } else {
+        crate::web_error!("relative_position: embedding.weight data is empty!");
     }
     Tensor::new(out, vec![l, l, C_Z])
 }

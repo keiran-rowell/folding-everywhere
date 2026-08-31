@@ -459,7 +459,7 @@
           boxIdb.className = "flow-box box-green-cached";
           flowIdb.textContent = "3.54 GB (SSD Cached)";
         } else if (stage === 'ram_reclaimed') {
-          streamBadge.textContent = "L1 WASM cache + VRAM (weights)";
+          streamBadge.textContent = "WASM RAM + GPU VRAM (weights)";
           streamBadge.className = "badge badge-green";
           statSpeed.textContent = "⚡ Zero-Copy VRAM (Resident)";
           statSpeed.style.color = "#7ee787";
@@ -472,7 +472,7 @@
           arrow3.className = "flow-arrow arrow-active";
           flowStatusLabel.textContent = "⚡ Dual WASM + iGPU VRAM Execution Active (3.30 GiB RAM Reclaimed)";
         } else if (stage === 'folding') {
-          streamBadge.textContent = "L1 WASM cache + VRAM (weights)";
+          streamBadge.textContent = "WASM RAM + GPU VRAM (weights)";
           streamBadge.className = "badge badge-green";
           statSpeed.textContent = "⚡ Zero-Copy VRAM (Resident)";
           statSpeed.style.color = "#7ee787";
