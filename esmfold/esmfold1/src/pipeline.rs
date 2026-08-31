@@ -185,8 +185,11 @@ pub fn fold_cb_with_recycles(w: &Weights, consts: &Constants, seq: &str, num_rec
                 }
             }
         }
+        crate::web_log!("fold_cb: creating s_in...");
         let s_in = Tensor::new(s_s0.data.iter().zip(&rs.data).map(|(a, b)| a + b).collect(), s_s0.shape.clone());
+        crate::web_log!("fold_cb: s_in created shape = {:?}, creating z_in...", s_in.shape);
         let z_in = Tensor::new(s_z0.data.iter().zip(&rz.data).map(|(a, b)| a + b).collect(), s_z0.shape.clone());
+        crate::web_log!("fold_cb: z_in created shape = {:?}, calling trunk_iter_cb...", z_in.shape);
         let (ss, sz, _) = trunk::trunk_iter_cb(&s_in, &z_in, w, l, false, &mut |blk| {
             prog(&format!("Folding trunk — recycle {}/{}: block {blk}/48", r + 1, max_recycles), base + (0.60 / max_recycles as f32) * blk as f32 / 48.0);
         });

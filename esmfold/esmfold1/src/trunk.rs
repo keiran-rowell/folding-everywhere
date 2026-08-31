@@ -29,6 +29,10 @@ fn lin_nb(x: &Tensor, w: &Weights, p: &str) -> Tensor {
     ops::linear(x, &w.get(&format!("{p}.weight")), None)
 }
 fn add(a: &Tensor, b: &Tensor) -> Tensor {
+    if a.data.len() != b.data.len() {
+        crate::web_error!("add length mismatch! a shape = {:?} (len {}), b shape = {:?} (len {})", a.shape, a.data.len(), b.shape, b.data.len());
+        assert_eq!(a.data.len(), b.data.len(), "add tensor length mismatch");
+    }
     Tensor::new(a.data.iter().zip(&b.data).map(|(x, y)| x + y).collect(), a.shape.clone())
 }
 
@@ -255,20 +259,48 @@ fn triangle_attention(z: &Tensor, w: &Weights, bp: &str, starting: bool, l: usiz
 
 /// One trunk block. Returns (s, z).
 pub fn block(s: &Tensor, z: &Tensor, w: &Weights, idx: usize, l: usize) -> (Tensor, Tensor) {
+    crate::web_log!("trunk block {}/48 starting...", idx + 1);
     let bp = format!("trunk.blocks.{idx}");
-    // sequence update
+
+    crate::web_log!("block {}: running pair_to_sequence...", idx + 1);
     let bias = pair_to_sequence(z, w, &bp);
+
+    crate::web_log!("block {}: running layernorm_1...", idx + 1);
     let y = ln(s, w, &format!("{bp}.layernorm_1"));
+
+    crate::web_log!("block {}: running seq_attention...", idx + 1);
     let y = seq_attention(&y, &bias, w, &bp, l);
+
+    crate::web_log!("block {}: running add(s, y)...", idx + 1);
     let mut s = add(s, &y);
+
+    crate::web_log!("block {}: running mlp_seq...", idx + 1);
     s = residue_mlp(&s, w, &format!("{bp}.mlp_seq"));
-    // pair update
-    let mut z = add(z, &sequence_to_pair(&s, w, &bp, l));
-    z = add(&z, &triangle_mul(&z, w, &bp, true, l));
-    z = add(&z, &triangle_mul(&z, w, &bp, false, l));
-    z = add(&z, &triangle_attention(&z, w, &bp, true, l));
-    z = add(&z, &triangle_attention(&z, w, &bp, false, l));
+
+    crate::web_log!("block {}: running sequence_to_pair...", idx + 1);
+    let z_seq = sequence_to_pair(&s, w, &bp, l);
+    let mut z = add(z, &z_seq);
+
+    crate::web_log!("block {}: running tri_mul_out...", idx + 1);
+    let z_out = triangle_mul(&z, w, &bp, true, l);
+    z = add(&z, &z_out);
+
+    crate::web_log!("block {}: running tri_mul_in...", idx + 1);
+    let z_in = triangle_mul(&z, w, &bp, false, l);
+    z = add(&z, &z_in);
+
+    crate::web_log!("block {}: running tri_att_start...", idx + 1);
+    let z_att1 = triangle_attention(&z, w, &bp, true, l);
+    z = add(&z, &z_att1);
+
+    crate::web_log!("block {}: running tri_att_end...", idx + 1);
+    let z_att2 = triangle_attention(&z, w, &bp, false, l);
+    z = add(&z, &z_att2);
+
+    crate::web_log!("block {}: running mlp_pair...", idx + 1);
     z = residue_mlp(&z, w, &format!("{bp}.mlp_pair"));
+
+    crate::web_log!("block {}/48 completed!", idx + 1);
     (s, z)
 }
 
