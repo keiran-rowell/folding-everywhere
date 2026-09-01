@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="coi-serviceworker.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ESMFold1 FP8 — WebAssembly local execution - Proof of Concept</title>
@@ -257,7 +258,16 @@
     <h3 style="font-family: Georgia, serif; font-weight: normal; margin: 0; color: #f0f6fc;">Interactive 3D Protein Viewport & PDB Output:</h3>
     <button id="downloadBtn" style="width: auto; padding: 6px 16px; display: none; background: #238636; border-color: #3fb950;">💾 Save PDB Structure</button>
   </div>
-  <div id="viewport" style="width: 100%; height: 420px; position: relative; background: #0d1117; border: 1px solid var(--border); border-radius: 6px; margin-top: 12px; display: none;"></div>
+  <div id="plddtLegend" style="display: none; margin-top: 12px; padding: 8px 12px; background: #161b22; border: 1px solid var(--border); border-radius: 6px; align-items: center; justify-content: space-between; font-size: 0.82rem;">
+    <span style="font-weight: bold; color: var(--accent);">pLDDT Confidence Legend:</span>
+    <div style="display: flex; gap: 14px; align-items: center;">
+      <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 12px; height: 12px; background: #0053D6; border-radius: 2px; display: inline-block;"></span> Very High (&gt;90)</span>
+      <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 12px; height: 12px; background: #65CBF3; border-radius: 2px; display: inline-block;"></span> Confident (70-90)</span>
+      <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 12px; height: 12px; background: #FFDB13; border-radius: 2px; display: inline-block;"></span> Low (50-70)</span>
+      <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 12px; height: 12px; background: #FF7D45; border-radius: 2px; display: inline-block;"></span> Very Low (&lt;50)</span>
+    </div>
+  </div>
+  <div id="viewport" style="width: 100%; height: 420px; position: relative; background: #0d1117; border: 1px solid var(--border); border-radius: 6px; margin-top: 8px; display: none;"></div>
   <pre id="output" style="margin-top: 12px;">PDB text will appear here...</pre>
 
   <script type="module">
@@ -528,7 +538,9 @@
         foldBtn.disabled = false;
 
         const viewport = document.getElementById('viewport');
+        const legend = document.getElementById('plddtLegend');
         viewport.style.display = 'block';
+        if (legend) legend.style.display = 'flex';
 
         setTimeout(() => {
           const m3d = window.$3Dmol || window['3Dmol'] || window.TDmol || null;
@@ -536,11 +548,20 @@
             viewport.innerHTML = '';
             const viewer = m3d.createViewer(viewport, { backgroundColor: '#0d1117' });
             viewer.addModel(pdb, "pdb");
-            viewer.setStyle({}, { cartoon: { color: 'spectrum' } });
+
+            const plddtColorFn = (atom) => {
+              const b = atom.b || 0;
+              if (b >= 90) return '#0053D6'; // Very High (>90): Dark Blue
+              if (b >= 70) return '#65CBF3'; // Confident (70-90): Cyan
+              if (b >= 50) return '#FFDB13'; // Low (50-70): Yellow
+              return '#FF7D45';             // Very Low (<50): Orange
+            };
+
+            viewer.setStyle({}, { cartoon: { colorfunc: plddtColorFn } });
             viewer.zoomTo();
             viewer.render();
             viewer.resize();
-            console.log("✅ 3Dmol WebGL 3D structure rendered successfully!");
+            console.log("✅ 3Dmol WebGL 3D structure rendered with pLDDT coloring!");
           } else {
             console.warn("⚠️ 3Dmol library not available on window.$3Dmol or window.3Dmol");
           }

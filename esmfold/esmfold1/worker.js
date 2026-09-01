@@ -120,13 +120,18 @@ async function fnSaveCachedWeights(url, blobOrBuffer) {
     const key = normalizeKey(url);
     const filename = getFilename(url);
     const db = await openDB();
+
+    // Force IndexedDB to store a lightweight disk-backed Blob handle (0.001s instant IPC)
+    const blobToStore = (blobOrBuffer instanceof Blob)
+      ? blobOrBuffer
+      : new Blob([blobOrBuffer], { type: 'application/octet-stream' });
     
     return new Promise((resolve) => {
       const tx = db.transaction('weights', 'readwrite');
       const store = tx.objectStore('weights');
-      store.put(blobOrBuffer, key);
+      store.put(blobToStore, key);
       if (filename && filename !== key) {
-        store.put(blobOrBuffer, filename);
+        store.put(blobToStore, filename);
       }
       tx.oncomplete = () => {
         console.log(`✅ Safetensors saved to IndexedDB SSD: ${key}`);
