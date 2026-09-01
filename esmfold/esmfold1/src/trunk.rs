@@ -130,8 +130,9 @@ fn sequence_to_pair(s: &Tensor, w: &Weights, bp: &str, l: usize) -> Tensor {
     let sl = ln(s, w, &format!("{p}.layernorm"));
     crate::web_log!("sequence_to_pair: running proj...");
     let proj = lin(&sl, w, &format!("{p}.proj")); // [L, C_Z] (inner_dim*2 = 128)
+    let proj_f32 = proj.to_f32(); // Guarantees valid FP32 float vector (eliminates empty FP8 slice panics)
     let inner = C_Z / 2; // 64
-    let pd = &proj.data;
+    let pd = &proj_f32.data;
     crate::web_log!("sequence_to_pair: sl shape = {:?}, proj shape = {:?}, proj len = {}, C_Z = {}", sl.shape, proj.shape, pd.len(), C_Z);
     // x[i,j] = cat(prod, diff); prod[i,j,c]=q[j,c]*k[i,c]; diff[i,j,c]=q[j,c]-k[i,c]
     // q = proj[:, :inner], k = proj[:, inner:2*inner]
