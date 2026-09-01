@@ -203,20 +203,9 @@ self.onmessage = async (e) => {
       const idbData = await fnGetCachedWeights(weightsUrl);
 
       if (idbData) {
-        let weightBuffer;
-        if (idbData instanceof Blob) {
-          const arrayBuf = await idbData.arrayBuffer();
-          weightBuffer = new Uint8Array(arrayBuf);
-        } else if (idbData instanceof ArrayBuffer) {
-          weightBuffer = new Uint8Array(idbData);
-        } else {
-          weightBuffer = new Uint8Array(idbData.buffer || idbData);
-        }
-
-        const contentLength = weightBuffer.byteLength;
+        const contentLength = idbData.size || idbData.byteLength || (idbData.buffer ? idbData.buffer.byteLength : 3542960628);
         const totalGb = (contentLength / (1024 * 1024 * 1024)).toFixed(2);
-        
-        // Step 1: Alloc WASM Linear Memory
+
         self.postMessage({
           type: 'telemetry',
           stage: 'alloc_wasm',
@@ -230,8 +219,42 @@ self.onmessage = async (e) => {
           throw new Error("Failed to allocate linear memory for weights buffer.");
         }
 
-        // Step 2: Ingest from IndexedDB
-        new Uint8Array(wasm.memory.buffer, Number(ptr), contentLength).set(weightBuffer);
+        // Step 2: High-Speed 64 MB Chunked SSD Stream directly into WASM RAM (Zero JS Heap Paging)
+        const wasmView = new Uint8Array(wasm.memory.buffer, Number(ptr), contentLength);
+        const CHUNK_SIZE = 64 * 1024 * 1024; // 64 MB chunks
+        let offset = 0;
+        const startTime = performance.now();
+
+        if (idbData instanceof Blob) {
+          while (offset < contentLength) {
+            const end = Math.min(offset + CHUNK_SIZE, contentLength);
+            const slice = idbData.slice(offset, end);
+            const chunkBuf = await slice.arrayBuffer();
+            wasmView.set(new Uint8Array(chunkBuf), offset);
+            offset = end;
+
+            const elapsedSec = (performance.now() - startTime) / 1000;
+            const currentSpeed = elapsedSec > 0 ? ((offset / (1024 * 1024)) / elapsedSec).toFixed(1) : '3000';
+            const pct = (offset / contentLength);
+
+            self.postMessage({
+              type: 'telemetry',
+              stage: 'streaming',
+              source: 'idb',
+              bytesReceived: offset,
+              contentLength,
+              loaded: offset,
+              total: contentLength,
+              speed: parseFloat(currentSpeed),
+              fraction: pct,
+              mbps: `${currentSpeed} MB/s (IndexedDB SSD Stream)`,
+              message: `Streaming IndexedDB SSD ➔ WASM Linear RAM: ${(pct * 100).toFixed(0)}% (${currentSpeed} MB/s)`
+            });
+          }
+        } else {
+          const directBuf = idbData instanceof ArrayBuffer ? new Uint8Array(idbData) : new Uint8Array(idbData.buffer || idbData);
+          wasmView.set(directBuf);
+        }
 
         self.postMessage({
           type: 'telemetry',
